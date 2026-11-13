@@ -22,35 +22,37 @@ func NewIndexer(db *store.DB, emb *embedding.Client, qd *QdrantClient) *Indexer 
 	return &Indexer{db: db, emb: emb, qd: qd, embedBatch: 16}
 }
 
-// IndexDoc 全流程入库文档。幂等：同 doc 重复调用会覆盖 chunk 与向量。
+// IndexDoc reuses the same point IDs when retrying after a partial write.
 func (ix *Indexer) IndexDoc(ctx context.Context, docID int64) error {
 	doc, err := ix.db.GetKnowledgeDoc(ctx, docID)
 	if err != nil {
 		return fmt.Errorf("get doc: %w", err)
 	}
-	if err := ix.db.UpdateKnowledgeStatus(ctx, docID, "indexing", 0, ""); err != nil {
-		return err
-	}
-
-	// 1. 解析原文为纯文本
-	text := ParseText([]byte(doc.Content), doc.SourceType)
-	if text == "" {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "解析后内容为空")
-		return fmt.Errorf("doc %d 内容为空", docID)
-	}
-
-	// 2. 分块
-	chunks := ChunkText(text, DefaultChunkOptions())
-	if len(chunks) == 0 {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "分块结果为空")
-		return fmt.Errorf("doc %d 分块为空", docID)
-	}
-
-	// 3. 写 PG（拿到 chunk 自增 id，作为 Qdrant point id）
-	rows, err := ix.db.InsertKnowledgeChunks(ctx, docID, chunks)
+	rows, err := ix.db.ListKnowledgeChunks(ctx, docID)
 	if err != nil {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "chunk 落库失败: "+err.Error())
 		return err
+	}
+	if !doc.ChunksSaved {
+		text := ParseText([]byte(doc.Content), doc.SourceType)
+		chunks := ChunkText(text, DefaultChunkOptions())
+		if len(chunks) == 0 {
+			return fmt.Errorf("doc %d 解析后内容为空", docID)
+		}
+		// An older worker could leave partial rows and vectors behind.
+		ids := make([]uint64, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, uint64(row.ID))
+		}
+		if err := ix.qd.DeleteByIDs(ctx, CollectionKnowledge, ids); err != nil {
+			return err
+		}
+		rows, err = ix.db.SaveKnowledgeChunks(ctx, docID, chunks)
+		if err != nil {
+			return err
+		}
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("doc %d 分块为空", docID)
 	}
 
 	// 4. 向量化（分批）
@@ -60,7 +62,6 @@ func (ix *Indexer) IndexDoc(ctx context.Context, docID int64) error {
 	}
 	vectors, err := ix.embedAll(ctx, texts)
 	if err != nil {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "向量化失败: "+err.Error())
 		return err
 	}
 
@@ -80,19 +81,13 @@ func (ix *Indexer) IndexDoc(ctx context.Context, docID int64) error {
 	}
 	// 确保集合存在（维度取第一个向量）
 	if err := ix.qd.EnsureCollection(ctx, CollectionKnowledge, len(vectors[0])); err != nil {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "Qdrant 集合初始化失败: "+err.Error())
 		return err
 	}
 	if err := ix.qd.Upsert(ctx, CollectionKnowledge, points); err != nil {
-		_ = ix.db.UpdateKnowledgeStatus(ctx, docID, "failed", 0, "Qdrant 写入失败: "+err.Error())
 		return err
 	}
 
-	// 6. 完成
-	if err := ix.db.UpdateKnowledgeStatus(ctx, docID, "ready", len(points), ""); err != nil {
-		return err
-	}
-	return nil
+	return ix.db.CompleteKnowledgeJob(ctx, docID, len(points))
 }
 
 func (ix *Indexer) embedAll(ctx context.Context, texts []string) ([][]float32, error) {
@@ -111,16 +106,9 @@ func (ix *Indexer) embedAll(ctx context.Context, texts []string) ([][]float32, e
 	return out, nil
 }
 
-// DeleteDoc 删除文档：PG 软删除 + Qdrant 清理对应向量。
-func (ix *Indexer) DeleteDoc(ctx context.Context, docID int64) error {
-	ids, err := ix.db.DeleteKnowledgeDoc(ctx, docID)
-	if err != nil {
-		return err
-	}
-	if len(ids) > 0 {
-		if err := ix.qd.DeleteByIDs(ctx, CollectionKnowledge, ids); err != nil {
-			return fmt.Errorf("qdrant 清理失败: %w", err)
-		}
-	}
-	return nil
+// DeleteDoc soft-deletes the document and removes its vectors.
+func (ix *Indexer) DeleteDoc(ctx context.Context, agentID, docID int64) error {
+	return ix.db.DeleteKnowledgeDoc(ctx, agentID, docID, func(ids []uint64) error {
+		return ix.qd.DeleteByIDs(ctx, CollectionKnowledge, ids)
+	})
 }

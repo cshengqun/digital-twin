@@ -101,6 +101,24 @@ textarea:focus{border-color:var(--accent);}
 .pitem .k{flex:0 0 62px;color:var(--ink3);}
 .pitem .v{flex:1;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
 .pempty{padding:16px 0;text-align:center;color:var(--ink3);font-size:13px;}
+.sources{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--ink2);}
+.cite{border:1px solid var(--line);background:var(--paper);border-radius:6px;color:var(--accent-deep);padding:2px 6px;cursor:pointer;font:inherit;}
+.bubble .cite{margin:0 2px;}
+.source-title{font-weight:600;margin:0 0 8px;}
+.source-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;margin:0 0 12px;}
+.source-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.source-actions .mini{margin:0;}
+.memory-list .kitem{align-items:flex-start;}
+.memory-list .t{white-space:normal;overflow-wrap:anywhere;}
+.memory-list .st{white-space:nowrap;}
+.memory-editor{margin-top:14px;}
+.memory-editor[hidden]{display:none;}
+.memory-editor label{font-size:13px;color:var(--ink2);}
+.memory-editor textarea{min-height:90px;}
+.memory-detail{padding-bottom:12px;}
+dialog.panel{width:min(620px,calc(100% - 24px));padding:0;margin:auto;border:1px solid var(--line);}
+dialog.panel:not([open]){display:none;}
+dialog.panel::backdrop{background:rgba(24,32,46,.38);}
 @media (max-width:720px){ .side{display:none;} .mrow{padding:6px 12px;gap:8px;} .mrow .bubble{max-width:100%;} .mrow.user .bubble{max-width:80%;} }
 </style>
 </head>
@@ -110,6 +128,7 @@ textarea:focus{border-color:var(--accent);}
   <span class="sp"></span>
   <button class="btn" id="kbBtn">知识库</button>
   <button class="btn" id="journalBtn">日记</button>
+  <button class="btn" id="memoryBtn">记忆</button>
   <button class="btn" id="newBtn">新对话</button>
   <button class="btn ghost" id="logoutBtn">登出</button>
 </header>
@@ -158,20 +177,59 @@ textarea:focus{border-color:var(--accent);}
     <div class="head"><span class="t">日记与画像</span><button class="close" id="journalClose">&times;</button></div>
     <div class="body">
       <div class="journal-form">
-        <textarea id="journalText" placeholder="写写今天做了什么、想了什么、怎么决策的…&#10;提交后会自动抽取成记忆（事实/情景/方法），并更新你的画像"></textarea>
+        <textarea id="journalText" placeholder="写写今天做了什么、想了什么、怎么决策的…&#10;提交后会自动抽取成记忆（事实/情景/方法）"></textarea>
         <div class="row">
           <button class="mini" id="journalSubmit" style="margin-left:auto;">提交日记</button>
         </div>
-        <div class="jstatus" id="journalStatus"></div>
+        <div class="jstatus" id="journalStatus" role="status"></div>
         <div class="note">每次提交都会抽取记忆；画像每天凌晨 02:30 自动重建。</div>
       </div>
+      <div class="klist" id="journalJobs" aria-label="近期日记处理记录"></div>
       <div class="profile">
-        <div class="ptitle">我的画像</div>
+        <div class="ptitle">我的画像 <button type="button" class="cite" id="profileRebuild">重建画像</button></div>
         <div id="profileBody"></div>
       </div>
     </div>
   </div>
 </div>
+
+<dialog class="panel" id="memoryDialog" aria-labelledby="memoryTitle">
+  <div class="head"><span class="t" id="memoryTitle">记忆</span><button class="close" id="memoryClose" aria-label="关闭">&times;</button></div>
+  <div class="body">
+    <form class="kb-form" id="memorySearch">
+      <div class="row">
+        <input type="text" id="memoryQuery" aria-label="搜索记忆" placeholder="搜索记忆正文">
+        <button class="mini" type="submit">搜索</button>
+      </div>
+    </form>
+    <div class="klist memory-list" id="memoryList"></div>
+    <button type="button" class="cite" id="memoryMore" hidden>加载更多</button>
+    <div class="jstatus" id="memoryListStatus" role="status"></div>
+  </div>
+</dialog>
+
+<dialog class="panel" id="sourceDialog" aria-labelledby="sourceTitle">
+  <div class="head"><span class="t" id="sourceTitle">来源</span><button class="close" id="sourceClose" aria-label="关闭">&times;</button></div>
+  <div class="body">
+    <div id="citationDetail" hidden>
+      <p class="source-title" id="citationLabel"></p>
+      <p class="source-text" id="citationText"></p>
+      <a id="citationURL" target="_blank" rel="noopener noreferrer" hidden>打开原网页</a>
+    </div>
+    <div class="source-actions" id="sourceActions"></div>
+    <div class="memory-detail" id="originalSource" hidden></div>
+    <form class="journal-form memory-editor" id="memoryEdit" hidden>
+      <label for="memoryText">当前记忆</label>
+      <textarea id="memoryText" maxlength="2000" required></textarea>
+      <div class="row">
+        <button class="mini" id="saveMemory" type="submit">保存纠正</button>
+        <button class="cite" id="archiveMemory" type="button">归档</button>
+        <button class="cite" id="retryMemory" type="button" hidden>重试向量同步</button>
+      </div>
+    </form>
+    <div class="jstatus" id="sourceStatus" role="status"></div>
+  </div>
+</dialog>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -224,6 +282,7 @@ async function send(text) {
           $('msgs').scrollTop = $('msgs').scrollHeight;
         } else if (ev.type === 'done') {
           currentId = ev.conversation_id;
+          renderCitations(col, ev.citations);
           if (ev.trace && ev.trace.length) renderTrace(col, ev.trace);
           loadConversations();
         } else if (ev.type === 'error') {
@@ -272,6 +331,40 @@ function appendMsg(role, text) {
   return row.classList.contains('assistant') ? row.querySelector('.acol') : row;
 }
 
+function renderCitations(col, citations) {
+  if (!citations?.length) return;
+  const bubble = col.querySelector('.bubble');
+  const byNumber = new Map(citations.map(c => [c.number, c]));
+  const button = (label, citation) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'cite';
+    el.textContent = label;
+    el.setAttribute('aria-label', '查看来源 ' + citation.number + ' ' + citation.title);
+    el.onclick = () => openSource(citation);
+    return el;
+  };
+  const used = new Set();
+  const text = bubble.textContent;
+  let cursor = 0;
+  bubble.replaceChildren();
+  for (const match of text.matchAll(/\[([1-9][0-9]{0,2})\]/g)) {
+    const citation = byNumber.get(Number(match[1]));
+    if (!citation) continue;
+    bubble.append(text.slice(cursor, match.index), button(match[0], citation));
+    used.add(citation.number);
+    cursor = match.index + match[0].length;
+  }
+  bubble.append(text.slice(cursor));
+  const sources = document.createElement('div');
+  sources.className = 'sources';
+  sources.append('引用');
+  for (const citation of citations) {
+    if (used.has(citation.number)) sources.append(button('[' + citation.number + '] ' + citation.title, citation));
+  }
+  col.appendChild(sources);
+}
+
 // renderTrace：在分身消息下方渲染"本次执行流程"面板。
 function renderTrace(col, steps) {
   const total = steps.reduce((s, x) => s + (x.ms || 0), 0);
@@ -306,7 +399,13 @@ async function loadConversations() {
       d.className = 'sitem' + (it.id === currentId ? ' active' : '');
       d.innerHTML = '<div class="t"></div><div class="d"></div>';
       d.querySelector('.t').textContent = it.title;
-      d.querySelector('.d').textContent = it.last;
+      const status = {pending:'记忆待抽取', extracting:'抽取记忆中', failed:'记忆抽取失败'}[it.extract_status];
+      d.querySelector('.d').textContent = status ? it.last + ' · ' + status : it.last;
+      if (it.extract_status === 'failed') {
+        const retry = retryButton('/api/conversations/' + it.id + '/retry', loadConversations);
+        retry.addEventListener('click', e => e.stopPropagation());
+        d.appendChild(retry);
+      }
       d.onclick = () => openConversation(it.id);
       slist.appendChild(d);
     }
@@ -322,7 +421,11 @@ async function openConversation(id) {
     const res = await fetch('/api/conversations/' + id + '/messages');
     if (!res.ok) return;
     const msgs = await res.json();
-    for (const m of msgs) appendMsg(m.role === 'user' ? 'user' : 'assistant', m.content);
+    if (currentId !== id) return;
+    for (const m of msgs) {
+      const col = appendMsg(m.role === 'user' ? 'user' : 'assistant', m.content);
+      if (m.role === 'assistant') renderCitations(col, m.citations);
+    }
   } catch {}
 }
 
@@ -378,9 +481,7 @@ async function kbRefresh() {
       list.innerHTML = '<div class="kempty">还没有知识文档，上传 TXT / HTML 或导入网页开始构建</div>';
       return;
     }
-    let busy = false;
     for (const d of docs) {
-      if (d.status === 'pending' || d.status === 'indexing') busy = true;
       const el = document.createElement('div');
       el.className = 'kitem';
       const stText = {pending:'排队中', indexing:'入库中…', ready:'已就绪 · ' + d.chunk_count + ' 块', failed:'失败', deleted:'已删除'}[d.status] || d.status;
@@ -388,12 +489,12 @@ async function kbRefresh() {
       el.querySelector('.t').textContent = d.title + (d.error_msg ? '（' + d.error_msg + '）' : '');
       el.querySelector('.st').textContent = stText;
       el.querySelector('.del').onclick = async () => {
-        await fetch('/api/knowledge/' + d.id, {method: 'DELETE'});
+        await jobAction('/api/knowledge/' + d.id, 'DELETE', '删除失败');
         kbRefresh();
       };
+      if (d.status === 'failed') el.appendChild(retryButton('/api/knowledge/' + d.id + '/retry', kbRefresh));
       list.appendChild(el);
     }
-    if (!busy && kbTimer) { clearInterval(kbTimer); kbTimer = null; }
   } catch {}
 }
 $('kbBtn').onclick = kbOpen;
@@ -408,6 +509,7 @@ $('kbUpload').onclick = async () => {
   try {
     const res = await fetch('/api/knowledge/import', {method: 'POST', body: fd});
     if (res.ok) { $('kbFile').value = ''; kbRefresh(); }
+    else { alert((await res.text()) || '上传失败'); }
   } finally { btn.disabled = false; }
 };
 $('kbUrlBtn').onclick = async () => {
@@ -425,21 +527,72 @@ $('kbUrlBtn').onclick = async () => {
   } finally { btn.disabled = false; }
 };
 
+async function jobAction(url, method, message) {
+  try {
+    const res = await fetch(url, {method});
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) alert((await res.text()) || message);
+  } catch { alert(message); }
+}
+
+function retryButton(url, refresh) {
+  const button = document.createElement('button');
+  button.className = 'mini';
+  button.textContent = '重试';
+  button.onclick = async () => {
+    button.disabled = true;
+    await jobAction(url, 'POST', '重试失败');
+    await refresh();
+    button.disabled = false;
+  };
+  return button;
+}
+
 // ---------- 日记与画像 ----------
+let journalTimer = null;
 function journalOpen() {
   $('journalMask').style.display = 'flex';
   $('journalStatus').textContent = '';
   loadProfile();
+  refreshJournalJobs();
+  if (journalTimer) clearInterval(journalTimer);
+  journalTimer = setInterval(refreshJournalJobs, 3000);
 }
-function journalClose() { $('journalMask').style.display = 'none'; }
+function journalClose() {
+  $('journalMask').style.display = 'none';
+  clearInterval(journalTimer);
+  journalTimer = null;
+}
 $('journalBtn').onclick = journalOpen;
 $('journalClose').onclick = journalClose;
 $('journalMask').onclick = e => { if (e.target === $('journalMask')) journalClose(); };
 
 function setJStatus(t) { $('journalStatus').textContent = t; }
-function digestAndRefresh() {
-  setJStatus('已提交，正在消化记忆…（画像每天凌晨自动重建）');
-  setTimeout(loadProfile, 4000); // 异步消化，稍后刷新（画像等凌晨重建）
+async function refreshJournalJobs() {
+  try {
+    const res = await fetch('/api/journal');
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) return;
+    const jobs = await res.json();
+    const list = $('journalJobs');
+    list.replaceChildren();
+    for (const job of jobs) {
+      const item = document.createElement('div');
+      item.className = 'kitem';
+      const title = document.createElement('span');
+      title.className = 't';
+      title.textContent = new Date(job.created_at).toLocaleString();
+      const state = document.createElement('span');
+      state.className = 'st ' + job.status;
+      state.textContent = {pending:'排队中', digesting:'消化中…', ready:'已完成', failed:'失败'}[job.status] || job.status;
+      if (job.error_msg) state.title = job.error_msg;
+      item.append(title, state);
+      if (job.status === 'failed') {
+        item.appendChild(retryButton('/api/journal/' + job.id + '/retry', refreshJournalJobs));
+      }
+      list.appendChild(item);
+    }
+  } catch {}
 }
 $('journalSubmit').onclick = async () => {
   const t = $('journalText').value.trim();
@@ -454,7 +607,8 @@ $('journalSubmit').onclick = async () => {
     if (res.status === 401) { location.href = '/login'; return; }
     if (!res.ok) { const b = await res.text(); setJStatus('提交失败：' + (b || res.status)); return; }
     $('journalText').value = '';
-    digestAndRefresh();
+    setJStatus('日记已提交');
+    refreshJournalJobs();
   } finally { btn.disabled = false; }
 };
 $('profileRebuild') && ($('profileRebuild').onclick = async () => {
@@ -512,6 +666,178 @@ async function loadProfile() {
     renderProfile(await res.json());
   } catch {}
 }
+
+// ---------- 引用与记忆 ----------
+let memoryBefore = 0;
+let memorySearchVersion = 0;
+let sourceVersion = 0;
+let editingMemory = null;
+
+async function memoryRequest(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) { location.href = '/login'; throw new Error('请重新登录'); }
+  if (!res.ok) throw new Error(res.status === 404 ? '来源记录不可用' : (await res.text()).trim());
+  return res.json();
+}
+
+async function loadMemories(reset) {
+  if (reset) memoryBefore = 0;
+  const version = ++memorySearchVersion;
+  $('memoryMore').disabled = true;
+  $('memoryListStatus').textContent = '正在读取记忆…';
+  try {
+    const params = new URLSearchParams({q: $('memoryQuery').value.trim(), before: memoryBefore});
+    const rows = await memoryRequest('/api/memories?' + params);
+    if (version !== memorySearchVersion) return;
+    const list = $('memoryList');
+    if (reset) list.replaceChildren();
+    for (const memory of rows || []) {
+      const row = document.createElement('div');
+      row.className = 'kitem';
+      const text = document.createElement('span');
+      text.className = 't';
+      text.textContent = memory.text;
+      const state = document.createElement('span');
+      state.className = 'st';
+      state.textContent = {archived:'已归档', pending_confirm:'待确认'}[memory.status] || (memory.corrected_at ? '已纠正' : '');
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'cite';
+      open.textContent = '查看';
+      open.onclick = () => openSource(null, memory.id);
+      row.append(text, state, open);
+      list.appendChild(row);
+      memoryBefore = memory.id;
+    }
+    $('memoryMore').hidden = (rows?.length || 0) < 50;
+    $('memoryListStatus').textContent = list.childElementCount ? '' : '没有找到记忆';
+  } catch (err) {
+    if (version === memorySearchVersion) $('memoryListStatus').textContent = err.message;
+  } finally {
+    if (version === memorySearchVersion) $('memoryMore').disabled = false;
+  }
+}
+
+$('memoryBtn').onclick = () => {
+  $('memoryDialog').showModal();
+  loadMemories(true);
+};
+$('memoryClose').onclick = () => $('memoryDialog').close();
+$('memorySearch').onsubmit = e => { e.preventDefault(); loadMemories(true); };
+$('memoryMore').onclick = () => loadMemories(false);
+$('sourceClose').onclick = () => $('sourceDialog').close();
+
+function showOriginalLink(ref, version) {
+  if (!/^journal:\d+$|^conversation:\d+(?::\d+)?$/.test(ref || '')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'cite';
+  button.textContent = '查看原文';
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      const source = await memoryRequest('/api/memories/source?ref=' + encodeURIComponent(ref));
+      if (version !== sourceVersion || !$('sourceDialog').open) return;
+      const original = $('originalSource');
+      const header = document.createElement('p');
+      header.className = 'source-title';
+      header.textContent = source.title + (source.date ? ' · ' + new Date(source.date).toLocaleString() : '');
+      const text = document.createElement('p');
+      text.className = 'source-text';
+      text.textContent = source.messages
+        ? source.messages.map(m => (m.role === 'user' ? '你' : '分身') + '：' + m.content).join('\n\n')
+        : source.content;
+      original.replaceChildren(header, text);
+      original.hidden = false;
+    } catch (err) {
+      if (version === sourceVersion) $('sourceStatus').textContent = err.message;
+    } finally { button.disabled = false; }
+  };
+  $('sourceActions').appendChild(button);
+}
+
+function renderMemoryEditor(memory) {
+  editingMemory = memory;
+  $('memoryEdit').hidden = false;
+  $('memoryText').value = memory.text;
+  $('archiveMemory').hidden = memory.status === 'archived';
+  $('saveMemory').textContent = memory.status === 'archived' ? '恢复为活跃记忆' : '保存纠正';
+  $('retryMemory').hidden = memory.vector_status !== 'failed';
+}
+
+async function openSource(citation, memoryID) {
+  const version = ++sourceVersion;
+  editingMemory = null;
+  $('memoryEdit').hidden = true;
+  $('originalSource').hidden = true;
+  $('sourceActions').replaceChildren();
+  $('sourceStatus').textContent = '';
+  $('sourceTitle').textContent = citation ? '引用 [' + citation.number + ']' : '查看记忆';
+  $('citationDetail').hidden = !citation;
+  const link = $('citationURL');
+  link.hidden = true;
+  link.removeAttribute('href');
+  if (citation) {
+    $('citationLabel').textContent = citation.title + (citation.chunk ? ' · 第 ' + citation.chunk + ' 块' : '')
+      + (citation.kind === 'memory' ? ' · 回答时的记忆' : '');
+    $('citationText').textContent = citation.text;
+    if (/^https?:\/\//i.test(citation.url || '')) {
+      link.href = citation.url;
+      link.hidden = false;
+    }
+    showOriginalLink(citation.source_ref, version);
+    if (citation.kind === 'memory') memoryID = citation.id;
+  }
+  if (!$('sourceDialog').open) $('sourceDialog').showModal();
+  if (!memoryID) return;
+  $('sourceStatus').textContent = '正在读取当前记忆…';
+  try {
+    const memory = await memoryRequest('/api/memories/' + memoryID);
+    if (version !== sourceVersion || !$('sourceDialog').open) return;
+    if (!citation) showOriginalLink(memory.source_ref, version);
+    renderMemoryEditor(memory);
+    $('sourceStatus').textContent = memory.vector_status === 'failed' ? '向量同步失败，可重试' : '';
+  } catch (err) {
+    if (version === sourceVersion) $('sourceStatus').textContent = err.message;
+  }
+}
+
+async function changeMemory(status) {
+  const memory = editingMemory;
+  if (!memory) return;
+  const version = sourceVersion;
+  $('saveMemory').disabled = $('archiveMemory').disabled = true;
+  try {
+    const updated = await memoryRequest('/api/memories/' + memory.id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({revision:memory.revision, text:$('memoryText').value, status})
+    });
+    if (version === sourceVersion && $('sourceDialog').open) {
+      renderMemoryEditor(updated);
+      $('sourceStatus').textContent = status === 'archived' ? '已归档' : '纠正已保存';
+    }
+    if ($('memoryDialog').open) loadMemories(true);
+  } catch (err) {
+    if (version === sourceVersion) $('sourceStatus').textContent = err.message;
+  } finally { $('saveMemory').disabled = $('archiveMemory').disabled = false; }
+}
+
+$('memoryEdit').onsubmit = e => { e.preventDefault(); changeMemory('active'); };
+$('archiveMemory').onclick = () => changeMemory('archived');
+$('retryMemory').onclick = async () => {
+  const memory = editingMemory;
+  const version = sourceVersion;
+  if (!memory) return;
+  try {
+    await memoryRequest('/api/memories/' + memory.id + '/retry', {method:'POST'});
+    if (version !== sourceVersion) return;
+    $('retryMemory').hidden = true;
+    $('sourceStatus').textContent = '已重新排队同步向量';
+  } catch (err) {
+    if (version === sourceVersion) $('sourceStatus').textContent = err.message;
+  }
+};
 
 // ---------- 启动 ----------
 (async function init() {

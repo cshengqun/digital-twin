@@ -24,7 +24,7 @@ type journalRequest struct {
 	Source  string `json:"source,omitempty"` // journal | correction
 }
 
-// submitJournal 写日志并触发异步消化（抽取三类记忆 + 重建画像）。
+// submitJournal 保存日记并将其加入消化队列。
 func (h *journalHandler) submitJournal(w http.ResponseWriter, r *http.Request) {
 	var req journalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -80,8 +80,17 @@ func (h *journalHandler) saveJournal(w http.ResponseWriter, r *http.Request, con
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	TriggerJournalDigest(h.extractor, h.db, h.agentID, h.ownerDesc, id)
-	writeJSON(w, map[string]any{"journal_id": id, "status": "digesting"})
+	writeJSON(w, map[string]any{"journal_id": id, "status": "pending"})
+}
+
+func (h *journalHandler) listJobs(w http.ResponseWriter, r *http.Request) {
+	items, err := h.db.ListJournalJobs(r.Context(), h.agentID)
+	if err != nil {
+		slog.Error("list journal jobs", "err", err)
+		http.Error(w, "读取日记处理状态失败", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, items)
 }
 
 // getProfile 返回当前人设画像（Profile + State）。

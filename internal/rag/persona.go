@@ -50,17 +50,25 @@ func (e *MemoryExtractor) SummarizeMessages(ctx context.Context, existingSummary
 	return strings.TrimSpace(out), nil
 }
 
-// ExtractJournal 消化一篇日志：把日志内容当作"主人自述"喂给三类记忆抽取管道，
-// 抽取结果（facts / episodic / procedural）走与对话一致的处理逻辑入库。返回抽取条数。
-func (e *MemoryExtractor) ExtractJournal(ctx context.Context, agentID int64, ownerDesc, journalText string) (int, error) {
-	msgs := []llm.Message{{Role: "user", Content: journalText}}
-	return e.ExtractConversation(ctx, agentID, ownerDesc, "journal", msgs)
+// ExtractJournal checkpoints the extraction before indexing so a retry reuses
+// the same memories and Qdrant point IDs even if the model would answer differently.
+func (e *MemoryExtractor) ExtractJournal(ctx context.Context, agentID int64, ownerDesc string, journalID int64) error {
+	content, saved, err := e.db.GetJournalWork(ctx, agentID, journalID)
+	if err != nil {
+		return err
+	}
+	source := fmt.Sprintf("journal:%d", journalID)
+	return e.runMemoryJob(ctx, store.JournalJob, agentID, ownerDesc, journalID, source, saved, []llm.Message{{Role: "user", Content: content}})
 }
 
 // BuildProfile 人格建模：基于记忆提炼结构化人设 Profile 与动态 State，写回 agents 表。
 // 输入 = 长期记忆（importance 降序，供 Profile）+ 近期记忆（时间倒序，供 State）；
 // 并把上一次画像作为锚点传入，防止长期字段漂移。日志不直接参与（入库时已抽成记忆）。
 func (e *MemoryExtractor) BuildProfile(ctx context.Context, agentID int64, ownerDesc string) error {
+	curProfile, curState, revision, err := e.db.ProfileForRebuild(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("profile anchor read: %w", err)
+	}
 	mems, err := e.db.ListMemoriesForProfile(ctx, agentID, 60)
 	if err != nil {
 		return fmt.Errorf("profile mems: %w", err)
@@ -73,13 +81,12 @@ func (e *MemoryExtractor) BuildProfile(ctx context.Context, agentID int64, owner
 		return fmt.Errorf("profile rebuild: 还没有记忆，无法建模")
 	}
 
-	curProfile, curState, perr := e.db.GetAgentProfile(ctx, agentID)
-	if perr != nil {
-		slog.Warn("profile anchor read", "err", perr)
-		curProfile, curState = "", ""
+	corrections, err := e.db.RecentCorrections(ctx, agentID)
+	if err != nil {
+		return err
 	}
 
-	prompt := buildProfilePrompt(ownerDesc, mems, recent, curProfile, curState)
+	prompt := buildProfilePrompt(ownerDesc, mems, recent, corrections, curProfile, curState)
 	resp, _, err := e.llm.Complete(ctx, []llm.Message{{Role: "user", Content: prompt}})
 	if err != nil {
 		return fmt.Errorf("profile llm: %w", err)
@@ -100,11 +107,8 @@ func (e *MemoryExtractor) BuildProfile(ctx context.Context, agentID int64, owner
 		stateJSON = string(stateRaw)
 	}
 
-	if err := e.db.UpdateAgentProfile(ctx, agentID, string(profileRaw)); err != nil {
+	if err := e.db.SaveAgentProfile(ctx, agentID, revision, string(profileRaw), stateJSON); err != nil {
 		return fmt.Errorf("profile save: %w", err)
-	}
-	if err := e.db.UpdateAgentState(ctx, agentID, stateJSON); err != nil {
-		return fmt.Errorf("state save: %w", err)
 	}
 	slog.Info("profile rebuilt", "agent_id", agentID, "mems", len(mems), "recent", len(recent))
 	return nil
@@ -112,7 +116,7 @@ func (e *MemoryExtractor) BuildProfile(ctx context.Context, agentID int64, owner
 
 // buildProfilePrompt 构造人格建模 prompt：
 // 输入证据 = 长期记忆（importance 序）+ 近期记忆（时间序）+ 当前画像锚点。
-func buildProfilePrompt(ownerDesc string, mems, recent []store.MemText, curProfile, curState string) string {
+func buildProfilePrompt(ownerDesc string, mems, recent []store.MemText, corrections []store.MemoryRecord, curProfile, curState string) string {
 	var sb strings.Builder
 	sb.WriteString(`你是个人数字分身的"人格建模引擎"。基于分身主人的长期记忆与近期记忆，提炼出他的结构化人设档案（Profile）与近期动态（State）。
 Profile 描述"他是怎样的人"，State 描述"他最近的状态"。
@@ -140,6 +144,7 @@ State: ` + strings.TrimSpace(curState) + `
 		sb.WriteString("- [" + m.Type + "] " + strings.TrimSpace(m.Text) + "\n")
 	}
 
+	writeConfirmedCorrections(&sb, corrections)
 	sb.WriteString(`
 要求：
 0. 锚点规则：当前画像是对分身主人的长期特征提炼，是可靠基线。
@@ -174,4 +179,14 @@ func parseProfileJSON(s string, out any) error {
 		s = s[:i+1]
 	}
 	return json.Unmarshal([]byte(s), out)
+}
+
+func writeConfirmedCorrections(sb *strings.Builder, corrections []store.MemoryRecord) {
+	if len(corrections) == 0 {
+		return
+	}
+	sb.WriteString("\n【用户已确认的纠正】遇到冲突时，以这里为准。\n")
+	for _, memory := range corrections {
+		sb.WriteString("- " + memory.Text + "\n")
+	}
 }

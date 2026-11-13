@@ -77,8 +77,6 @@ func main() {
 	}
 
 	srv := server.New(cfg, db, sm, lc, ret, indexer, extractor, weeklyReporter)
-	// 会话 30 分钟无活动自动收尾：后台扫描器定时把超时未抽取的会话做整段记忆抽取
-	srv.StartConversationReaper(ctx, cfg.ConversationIdleTimeout)
 	// 画像每天凌晨 02:30 自动重建（不随日志触发；含当天归档的对话记忆）
 	srv.StartProfileRebuilder(ctx)
 	// 每周日晚 20:00 自动生成个人周报
@@ -91,6 +89,11 @@ func main() {
 
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	jobsDone := make(chan struct{})
+	go func() {
+		defer close(jobsDone)
+		srv.RunBackgroundJobs(runCtx)
+	}()
 	partitionsDone := make(chan struct{})
 	go func() {
 		defer close(partitionsDone)
@@ -111,5 +114,6 @@ func main() {
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
 	<-partitionsDone
+	<-jobsDone
 	slog.Info("server stopped")
 }

@@ -121,7 +121,7 @@ func (c *QdrantClient) DeleteByIDs(ctx context.Context, collection string, ids [
 		return fmt.Errorf("qdrant: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("qdrant: delete 失败 HTTP %d: %s", resp.StatusCode, string(b))
 	}

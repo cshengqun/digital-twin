@@ -49,7 +49,11 @@ func (w *WeeklyReporter) GenerateWeeklyReport(ctx context.Context, agentID int64
 	// 当前画像作为背景
 	curProfile, curState, _ := w.db.GetAgentProfile(ctx, agentID)
 
-	prompt := buildWeeklyPrompt(ownerDesc, weekStart, weekEnd, mems, curProfile, curState)
+	corrections, err := w.db.RecentCorrections(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	prompt := buildWeeklyPrompt(ownerDesc, weekStart, weekEnd, mems, corrections, curProfile, curState)
 	resp, _, err := w.llm.Complete(ctx, []llm.Message{{Role: "user", Content: prompt}})
 	if err != nil {
 		return fmt.Errorf("周报 LLM: %w", err)
@@ -77,7 +81,7 @@ func (w *WeeklyReporter) GenerateWeeklyReport(ctx context.Context, agentID int64
 	return nil
 }
 
-func buildWeeklyPrompt(ownerDesc string, weekStart, weekEnd time.Time, mems []store.MemText, profile, state string) string {
+func buildWeeklyPrompt(ownerDesc string, weekStart, weekEnd time.Time, mems []store.MemText, corrections []store.MemoryRecord, profile, state string) string {
 	var sb strings.Builder
 	sb.WriteString(`你是个人数字分身的"周报生成器"。基于本周记忆，为分身主人生成一份简洁、真诚、有洞察的周度复盘。
 
@@ -95,10 +99,11 @@ State: ` + strings.TrimSpace(state) + `
 		sb.WriteString("- [" + m.Type + "] " + strings.TrimSpace(m.Text) + "\n")
 	}
 
+	writeConfirmedCorrections(&sb, corrections)
 	sb.WriteString(`
 要求：
 1. summary：一句话总结本周整体状态（不超过50字）
-2. themes：本周聊得最多/最重要的2-4个主题（从记忆里归纳，不要编造）
+2. 已确认的纠正用于核实事实，事件仍以本周时间范围为准。themes：本周聊得最多/最重要的2-4个主题（从记忆里归纳，不要编造）
 3. mood_trend：本周情绪/状态趋势（一句话，如"整体平稳，周中因面试焦虑，周末放松"）
 4. highlights：本周重要事件2-4条（从 episodic 记忆里挑，带具体时间/事件）
 5. concerns：本周需要关注的问题或隐忧1-3条（没有就空数组）

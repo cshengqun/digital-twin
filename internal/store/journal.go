@@ -3,8 +3,9 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -20,32 +21,34 @@ func (db *DB) InsertJournal(ctx context.Context, agentID int64, content, source 
 	return id, err
 }
 
-// ClaimJournalDigest 抢占日志消化标记（幂等防重）；成功返回 true 表示本次负责消化。
-func (db *DB) ClaimJournalDigest(ctx context.Context, id int64) (bool, error) {
-	var claimed bool
-	err := db.PG.QueryRow(ctx,
-		`UPDATE journals SET digest_at = now() WHERE id = $1 AND digest_at IS NULL RETURNING true`,
-		id).Scan(&claimed)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil // 已被消化（或不存在）
-	}
+type JournalJobStatus struct {
+	ID        int64     `json:"id"`
+	Status    string    `json:"status"`
+	ErrorMsg  string    `json:"error_msg"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (db *DB) ListJournalJobs(ctx context.Context, agentID int64) ([]JournalJobStatus, error) {
+	rows, err := db.PG.Query(ctx, `SELECT id, status, error_msg, created_at FROM journals
+		WHERE agent_id = $1 ORDER BY id DESC LIMIT 100`, agentID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return claimed, nil
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[JournalJobStatus])
 }
 
-// UnclaimJournalDigest 消化失败时撤销标记，允许后续重试。
-func (db *DB) UnclaimJournalDigest(ctx context.Context, id int64) error {
-	_, err := db.PG.Exec(ctx, `UPDATE journals SET digest_at = NULL WHERE id = $1`, id)
-	return err
+func (db *DB) GetJournalWork(ctx context.Context, agentID, id int64) (content string, saved bool, err error) {
+	err = db.PG.QueryRow(ctx, `SELECT content, memories_saved FROM journals
+		WHERE id = $1 AND agent_id = $2 AND status = 'digesting'`, id, agentID).Scan(&content, &saved)
+	return
 }
 
-// GetJournalContent 读取一篇日志正文。
-func (db *DB) GetJournalContent(ctx context.Context, id int64) (string, error) {
-	var c string
-	err := db.PG.QueryRow(ctx, `SELECT content FROM journals WHERE id = $1`, id).Scan(&c)
-	return c, err
+type MemoryDraft struct {
+	ID         int64
+	Type       string
+	Text       string
+	Importance int
+	Meta       map[string]any
 }
 
 // ---------- 人格建模（Profile / State） ----------
@@ -62,7 +65,7 @@ func (db *DB) ListMemoriesForProfile(ctx context.Context, agentID int64, limit i
 	rows, err := db.PG.Query(ctx,
 		`SELECT id, type, content_json->>'text' FROM memories
 		 WHERE agent_id = $1 AND status = 'active' AND type IN ('fact','procedural')
-		 ORDER BY importance DESC, created_at DESC LIMIT $2`,
+		 ORDER BY (corrected_at IS NOT NULL) DESC, importance DESC, created_at DESC LIMIT $2`,
 		agentID, limit)
 	if err != nil {
 		return nil, err
@@ -101,27 +104,25 @@ func (db *DB) ListRecentMemories(ctx context.Context, agentID int64, limit int) 
 	return out, rows.Err()
 }
 
-// GetAgentProfile 返回人设 Profile 与动态 State（JSON 文本）。
-func (db *DB) GetAgentProfile(ctx context.Context, agentID int64) (profileJSON, stateJSON string, err error) {
-	err = db.PG.QueryRow(ctx,
-		`SELECT COALESCE(profile_json::text, '{}'), COALESCE(state_json::text, '{}') FROM agents WHERE id = $1`,
-		agentID).Scan(&profileJSON, &stateJSON)
+// GetAgentProfile returns an empty profile while a newer correction awaits rebuilding.
+func (db *DB) GetAgentProfile(ctx context.Context, agentID int64) (profile, state string, err error) {
+	profile, state, _, err = db.ProfileForRebuild(ctx, agentID)
 	return
 }
 
-// UpdateAgentProfile 覆写人设 Profile。
-func (db *DB) UpdateAgentProfile(ctx context.Context, agentID int64, profileJSON string) error {
-	_, err := db.PG.Exec(ctx,
-		`UPDATE agents SET profile_json = $1::jsonb WHERE id = $2`,
-		profileJSON, agentID)
-	return err
+func (db *DB) ProfileForRebuild(ctx context.Context, agentID int64) (profile, state string, rev int64, err error) {
+	err = db.PG.QueryRow(ctx, `SELECT CASE WHEN profile_revision = memory_revision THEN profile_json::text ELSE '{}' END,
+		CASE WHEN profile_revision = memory_revision THEN state_json::text ELSE '{}' END, memory_revision
+		FROM agents WHERE id = $1`, agentID).Scan(&profile, &state, &rev)
+	return
 }
 
-// UpdateAgentState 覆写动态 State。
-func (db *DB) UpdateAgentState(ctx context.Context, agentID int64, stateJSON string) error {
-	_, err := db.PG.Exec(ctx,
-		`UPDATE agents SET state_json = $1::jsonb WHERE id = $2`,
-		stateJSON, agentID)
+func (db *DB) SaveAgentProfile(ctx context.Context, agentID, rev int64, profile, state string) error {
+	tag, err := db.PG.Exec(ctx, `UPDATE agents SET profile_json = $3::jsonb, state_json = $4::jsonb, profile_revision = $2
+		WHERE id = $1 AND memory_revision = $2`, agentID, rev, profile, state)
+	if err == nil && tag.RowsAffected() == 0 {
+		return fmt.Errorf("记忆已更新，请重新生成画像")
+	}
 	return err
 }
 

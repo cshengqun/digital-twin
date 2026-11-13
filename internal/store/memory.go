@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // InsertMemory 写入一条长期记忆。
 // meta 为可选结构化字段（event_time/mood/amount/tags），与 text 一起存进 content_json。
 func (db *DB) InsertMemory(ctx context.Context, agentID int64, mtype, text string, importance int, sourceRef string, meta map[string]any) (int64, error) {
+	return insertMemory(ctx, db.PG.QueryRow, agentID, mtype, text, importance, sourceRef, meta, "active")
+}
+
+func insertMemory(ctx context.Context, queryRow func(context.Context, string, ...any) pgx.Row, agentID int64, mtype, text string, importance int, sourceRef string, meta map[string]any, status string) (int64, error) {
 	// content_json 基对象：{"text": "..."}
 	obj := map[string]any{"text": text}
 	for k, v := range meta {
@@ -41,20 +47,12 @@ func (db *DB) InsertMemory(ctx context.Context, agentID int64, mtype, text strin
 		return 0, fmt.Errorf("marshal content_json: %w", err)
 	}
 	var id int64
-	err = db.PG.QueryRow(ctx,
-		`INSERT INTO memories (agent_id, type, content_json, importance, source_ref)
-		 VALUES ($1, $2, $3::jsonb, $4, $5)
+	err = queryRow(ctx,
+		`INSERT INTO memories (agent_id, type, content_json, importance, source_ref, status)
+		 VALUES ($1, $2, $3::jsonb, $4, $5, $6)
 		 RETURNING id`,
-		agentID, mtype, string(contentJSON), importance, sourceRef).Scan(&id)
+		agentID, mtype, string(contentJSON), importance, sourceRef, status).Scan(&id)
 	return id, err
-}
-
-// GetMemoryText 读取记忆的展示文本（content_json->'text'）。
-func (db *DB) GetMemoryText(ctx context.Context, id int64) (string, error) {
-	var t string
-	err := db.PG.QueryRow(ctx,
-		`SELECT content_json->>'text' FROM memories WHERE id = $1`, id).Scan(&t)
-	return t, err
 }
 
 // MemoryKeywordRow 关键词命中的记忆行。
@@ -97,7 +95,7 @@ func (db *DB) SearchMemoriesByKeyword(ctx context.Context, agentID int64, keywor
 		FROM memories m
 		WHERE m.agent_id = $1 AND m.status = 'active'
 		  AND (%s)
-		ORDER BY %s DESC, m.importance DESC
+		ORDER BY %s DESC, (m.corrected_at IS NOT NULL) DESC, m.importance DESC
 		LIMIT $%d`, conds, hit, len(keywords)+2)
 	rows, err := db.PG.Query(ctx, sql, args...)
 	if err != nil {
@@ -115,3 +113,79 @@ func (db *DB) SearchMemoriesByKeyword(ctx context.Context, agentID int64, keywor
 	return out, rows.Err()
 }
 
+func (db *DB) ActiveMemoriesByID(ctx context.Context, agentID int64, ids []int64) (map[int64]MemoryRecord, error) {
+	rows, err := db.PG.Query(ctx, `SELECT `+memoryFields+` FROM memories
+		WHERE agent_id = $1 AND id = ANY($2) AND status = 'active'`, agentID, ids)
+	if err != nil {
+		return nil, err
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowToStructByPos[MemoryRecord])
+	if err != nil {
+		return nil, err
+	}
+	active := make(map[int64]MemoryRecord, len(found))
+	for _, memory := range found {
+		active[memory.ID] = memory
+	}
+	return active, nil
+}
+
+func (db *DB) SaveExtractedMemories(ctx context.Context, kind JobKind, agentID, id int64, source string, memories []MemoryDraft) error {
+	tx, err := db.PG.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	table, running, _ := kind.queue()
+	query := fmt.Sprintf(`UPDATE %s SET memories_saved = true
+		WHERE id = $1 AND agent_id = $2 AND status = $3 AND NOT memories_saved`, table)
+	tag, err := tx.Exec(ctx, query, id, agentID, running)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("记忆抽取任务状态已变化")
+	}
+	for _, item := range memories {
+		if _, err := insertMemory(ctx, tx.QueryRow, agentID, item.Type, item.Text, item.Importance, source, item.Meta, "indexing"); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (db *DB) ListStagedMemories(ctx context.Context, agentID int64, source string) ([]MemoryDraft, error) {
+	rows, err := db.PG.Query(ctx, `SELECT id, type, content_json->>'text', importance, content_json FROM memories
+		WHERE agent_id = $1 AND source_ref = $2 AND status = 'indexing' ORDER BY id`, agentID, source)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[MemoryDraft])
+}
+
+func (db *DB) CompleteMemoryJob(ctx context.Context, kind JobKind, agentID, id int64, source string) error {
+	tx, err := db.PG.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	table, running, _ := kind.queue()
+	completionColumn := "digest_at"
+	if kind == ConversationJob {
+		completionColumn = "mem_extracted_at"
+	}
+	query := fmt.Sprintf(`UPDATE %s SET status = 'ready', %s = now(), error_msg = ''
+		WHERE id = $1 AND agent_id = $2 AND status = $3 AND memories_saved`, table, completionColumn)
+	tag, err := tx.Exec(ctx, query, id, agentID, running)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("记忆抽取任务状态已变化")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE memories SET status = 'active'
+		WHERE agent_id = $1 AND source_ref = $2 AND status = 'indexing'`, agentID, source); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

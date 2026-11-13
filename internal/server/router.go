@@ -21,16 +21,16 @@ const cookieName = "twin_sid"
 const defaultAgentID = 1 // 单用户架构：默认分身
 
 type Server struct {
-	cfg           *config.Config
-	db            *store.DB
-	sm            *session.Manager
-	llm           llm.Client
-	ret           *rag.Retriever
-	indexer       *rag.Indexer
-	extractor     *rag.MemoryExtractor
+	cfg            *config.Config
+	db             *store.DB
+	sm             *session.Manager
+	llm            llm.Client
+	ret            *rag.Retriever
+	indexer        *rag.Indexer
+	extractor      *rag.MemoryExtractor
 	weeklyReporter *rag.WeeklyReporter
-	agentID       int64
-	ownerDesc     string
+	agentID        int64
+	ownerDesc      string
 }
 
 func New(cfg *config.Config, db *store.DB, sm *session.Manager, lc llm.Client, ret *rag.Retriever, indexer *rag.Indexer, extractor *rag.MemoryExtractor, weeklyReporter *rag.WeeklyReporter) *Server {
@@ -98,16 +98,26 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/logout", protected(http.HandlerFunc(auth.logout)))
 	mux.Handle("POST /api/chat", protected(http.HandlerFunc(chat.chat)))
 	mux.Handle("GET /api/conversations", protected(http.HandlerFunc(chat.listConversations)))
+	mux.Handle("POST /api/conversations/{id}/retry", protected(s.retryJob(store.ConversationJob, s.extractor != nil)))
 	mux.Handle("GET /api/conversations/{id}/messages", protected(http.HandlerFunc(chat.conversationMessages)))
 
 	// Phase 1 · 知识库
 	mux.Handle("POST /api/knowledge/import", protected(http.HandlerFunc(knowledge.importFile)))
 	mux.Handle("POST /api/knowledge/import-url", protected(http.HandlerFunc(knowledge.importURL)))
 	mux.Handle("GET /api/knowledge", protected(http.HandlerFunc(knowledge.list)))
+	mux.Handle("POST /api/knowledge/{id}/retry", protected(s.retryJob(store.KnowledgeJob, s.indexer != nil)))
 	mux.Handle("DELETE /api/knowledge/{id}", protected(http.HandlerFunc(knowledge.delete)))
+
+	mux.Handle("GET /api/memories", protected(s.memoryOwner(s.listMemories)))
+	mux.Handle("GET /api/memories/{id}", protected(s.memoryOwner(s.getMemory)))
+	mux.Handle("PATCH /api/memories/{id}", protected(s.memoryOwner(s.editMemory)))
+	mux.Handle("GET /api/memories/source", protected(s.memoryOwner(s.readMemorySource)))
+	mux.Handle("POST /api/memories/{id}/retry", protected(s.memoryOwner(s.retryJob(store.MemoryVectorJob, s.extractor != nil))))
 
 	// 养成：日志喂养 + 人格画像
 	mux.Handle("POST /api/journal", protected(http.HandlerFunc(journal.submitJournal)))
+	mux.Handle("GET /api/journal", protected(http.HandlerFunc(journal.listJobs)))
+	mux.Handle("POST /api/journal/{id}/retry", protected(s.retryJob(store.JournalJob, s.extractor != nil)))
 	mux.Handle("POST /api/journal/file", protected(http.HandlerFunc(journal.uploadJournalFile)))
 	mux.Handle("GET /api/agent/profile", protected(http.HandlerFunc(journal.getProfile)))
 	mux.Handle("POST /api/agent/profile/rebuild", protected(http.HandlerFunc(journal.rebuildProfile)))

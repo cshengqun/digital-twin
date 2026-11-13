@@ -2,9 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
+
+var ErrKnowledgeBusy = errors.New("知识库正在入库，请稍后删除")
 
 // Chunk 是向量检索的最小单位（定义在 store，避免 rag↔store 循环依赖）。
 type Chunk struct {
@@ -14,16 +19,17 @@ type Chunk struct {
 
 // KnowledgeDoc 对应 knowledge_docs 一行（含 Phase 1 新增原文列）。
 type KnowledgeDoc struct {
-	ID         int64
-	AgentID    int64
-	SourceType string
-	SourceURL  string
-	Title      string
-	Status     string
-	Content    string
-	ErrorMsg   string
-	ChunkCount int
-	CreatedAt  time.Time
+	ID          int64
+	AgentID     int64
+	SourceType  string
+	SourceURL   string
+	Title       string
+	Status      string
+	Content     string
+	ErrorMsg    string
+	ChunksSaved bool
+	ChunkCount  int
+	CreatedAt   time.Time
 }
 
 // KnowledgeChunkRow 对应 knowledge_chunks 一行（含自增 id，用于 Qdrant point id）。
@@ -47,9 +53,9 @@ func (db *DB) InsertKnowledgeDoc(ctx context.Context, agentID int64, sourceType,
 func (db *DB) GetKnowledgeDoc(ctx context.Context, id int64) (*KnowledgeDoc, error) {
 	d := &KnowledgeDoc{}
 	err := db.PG.QueryRow(ctx,
-		`SELECT id, agent_id, source_type, source_url, title, status, content, error_msg, chunk_count, created_at
+		`SELECT id, agent_id, source_type, source_url, title, status, content, error_msg, chunk_count, created_at, chunks_saved
 		 FROM knowledge_docs WHERE id = $1`, id).
-		Scan(&d.ID, &d.AgentID, &d.SourceType, &d.SourceURL, &d.Title, &d.Status, &d.Content, &d.ErrorMsg, &d.ChunkCount, &d.CreatedAt)
+		Scan(&d.ID, &d.AgentID, &d.SourceType, &d.SourceURL, &d.Title, &d.Status, &d.Content, &d.ErrorMsg, &d.ChunkCount, &d.CreatedAt, &d.ChunksSaved)
 	if err != nil {
 		return nil, err
 	}
@@ -78,21 +84,39 @@ func (db *DB) ListKnowledgeDocs(ctx context.Context, agentID int64) ([]Knowledge
 	return out, rows.Err()
 }
 
-// UpdateKnowledgeStatus 更新入库状态；errorMsg 为空串时保留原值。
-func (db *DB) UpdateKnowledgeStatus(ctx context.Context, id int64, status string, chunkCount int, errorMsg string) error {
-	_, err := db.PG.Exec(ctx,
-		`UPDATE knowledge_docs SET status = $2, chunk_count = $3,
-		        error_msg = CASE WHEN $4 = '' THEN error_msg ELSE $4 END
-		 WHERE id = $1`, id, status, chunkCount, errorMsg)
-	return err
+// ListKnowledgeChunks reads checkpointed chunks in document order.
+func (db *DB) ListKnowledgeChunks(ctx context.Context, docID int64) ([]KnowledgeChunkRow, error) {
+	rows, err := db.PG.Query(ctx, `SELECT id, doc_id, content, created_at FROM knowledge_chunks
+		WHERE doc_id = $1 ORDER BY (metadata_json->>'idx')::int, id`, docID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[KnowledgeChunkRow])
 }
 
-// InsertKnowledgeChunks 批量写入分块（分区表按 created_at 落月分区），返回带自增 id 的行。
-func (db *DB) InsertKnowledgeChunks(ctx context.Context, docID int64, chunks []Chunk) ([]KnowledgeChunkRow, error) {
+// SaveKnowledgeChunks replaces any partial legacy chunks and stores the new
+// chunks and checkpoint in one transaction.
+func (db *DB) SaveKnowledgeChunks(ctx context.Context, docID int64, chunks []Chunk) ([]KnowledgeChunkRow, error) {
+	tx, err := db.PG.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE knowledge_docs SET chunks_saved = true
+		WHERE id = $1 AND status = 'indexing' AND NOT chunks_saved`, docID)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() != 1 {
+		return nil, fmt.Errorf("文档状态已变化")
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM knowledge_chunks WHERE doc_id = $1`, docID); err != nil {
+		return nil, err
+	}
 	out := make([]KnowledgeChunkRow, 0, len(chunks))
 	for _, c := range chunks {
 		var row KnowledgeChunkRow
-		err := db.PG.QueryRow(ctx,
+		err := tx.QueryRow(ctx,
 			`INSERT INTO knowledge_chunks (doc_id, content, metadata_json)
 			 VALUES ($1, $2, jsonb_build_object('idx', $3::int))
 			 RETURNING id, doc_id, content, created_at`,
@@ -102,30 +126,51 @@ func (db *DB) InsertKnowledgeChunks(ctx context.Context, docID int64, chunks []C
 		}
 		out = append(out, row)
 	}
-	return out, nil
+	return out, tx.Commit(ctx)
 }
 
-// DeleteKnowledgeDoc 软删除文档并返回被删 chunk id（供 Qdrant 清理）。
-func (db *DB) DeleteKnowledgeDoc(ctx context.Context, id int64) ([]uint64, error) {
-	rows, err := db.PG.Query(ctx, `SELECT id FROM knowledge_chunks WHERE doc_id = $1`, id)
+func (db *DB) CompleteKnowledgeJob(ctx context.Context, docID int64, count int) error {
+	tag, err := db.PG.Exec(ctx, `UPDATE knowledge_docs SET status = 'ready', chunk_count = $2, error_msg = ''
+		WHERE id = $1 AND status = 'indexing'`, docID, count)
+	if err == nil && tag.RowsAffected() != 1 {
+		return fmt.Errorf("文档状态已变化")
+	}
+	return err
+}
+
+// DeleteKnowledgeDoc serializes deletion with the indexing attempt.
+func (db *DB) DeleteKnowledgeDoc(ctx context.Context, agentID, id int64, removeVectors func([]uint64) error) error {
+	tx, err := db.PG.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var ids []uint64
-	for rows.Next() {
-		var cid int64
-		if err := rows.Scan(&cid); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, uint64(cid))
+	defer tx.Rollback(ctx)
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, $2)`, jobLockNamespace, KnowledgeJob).Scan(&locked); err != nil {
+		return err
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if !locked {
+		return ErrKnowledgeBusy
 	}
-	_, err = db.PG.Exec(ctx, `UPDATE knowledge_docs SET status = 'deleted' WHERE id = $1`, id)
-	return ids, err
+	var existingID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM knowledge_docs WHERE id = $1 AND agent_id = $2 FOR UPDATE`, id, agentID).Scan(&existingID); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM knowledge_chunks WHERE doc_id = $1`, id)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uint64])
+	if err != nil {
+		return err
+	}
+	if err := removeVectors(ids); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE knowledge_docs SET status = 'deleted' WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // SearchKnowledgeByKeyword 关键词检索：pg_trgm 子串匹配，按命中数排序。

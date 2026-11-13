@@ -13,7 +13,7 @@ import (
 )
 
 // MemoryExtractor 从会话中抽取"值得长期记住"的用户画像/事件/方法，写入 PG + 向量库。
-// 运行在对话完成后的后台 goroutine：失败只记日志，不阻塞对话。
+// 由后台任务调用，先保存抽取结果，再索引并发布。
 type MemoryExtractor struct {
 	db  *store.DB
 	llm llm.Client
@@ -32,8 +32,8 @@ type MemItem struct {
 	Text       string   `json:"text"`
 	Importance int      `json:"importance"`
 	EventTime  string   `json:"event_time,omitempty"` // 事件发生时间（YYYY-MM-DD 或"今天/昨天/上周"），未知留空
-	Mood       int      `json:"mood,omitempty"`        // 情绪值 1-10（1=极差，10=极佳），0=未知
-	Amount     float64  `json:"amount,omitempty"`      // 涉及金额（人民币元），0=无/未知
+	Mood       int      `json:"mood,omitempty"`       // 情绪值 1-10（1=极差，10=极佳），0=未知
+	Amount     float64  `json:"amount,omitempty"`     // 涉及金额（人民币元），0=无/未知
 	Tags       []string `json:"tags,omitempty"`       // 事件标签 2-5 个（项目名/人物/领域），如"面试""OKX""房贷"
 }
 
@@ -44,15 +44,60 @@ type ExtractedMemories struct {
 	Procedural []MemItem `json:"procedural"`
 }
 
-// ExtractConversation 对整个会话的消息做分段抽取并入库（会话结束后调用）。
-// 单次 LLM 上下文有限：按窗口分段，每段独立抽取，合并后按文本去重。返回入库记忆条数。
-func (e *MemoryExtractor) ExtractConversation(ctx context.Context, agentID int64, ownerDesc, sourceRef string, msgs []llm.Message) (int, error) {
+// ExtractConversation resumes the pinned range for the current extraction job.
+func (e *MemoryExtractor) ExtractConversation(ctx context.Context, agentID int64, ownerDesc string, id int64) error {
+	work, err := e.db.GetConversationExtractWork(ctx, agentID, id)
+	if err != nil {
+		return err
+	}
+	msgs := make([]llm.Message, 0, len(work.Messages)+1)
+	if work.Summary != "" {
+		msgs = append(msgs, llm.Message{Role: "system", Content: "【本会话早期内容摘要】\n" + work.Summary})
+	}
+	for _, msg := range work.Messages {
+		msgs = append(msgs, llm.Message{Role: msg.Role, Content: msg.Content})
+	}
+	source := fmt.Sprintf("conversation:%d:%d", id, work.UntilID)
+	return e.runMemoryJob(ctx, store.ConversationJob, agentID, ownerDesc, id, source, work.Saved, msgs)
+}
+
+func (e *MemoryExtractor) runMemoryJob(ctx context.Context, kind store.JobKind, agentID int64, ownerDesc string, id int64, source string, saved bool, msgs []llm.Message) error {
+	if !saved {
+		items, err := e.extractMemories(ctx, agentID, ownerDesc, source, msgs)
+		if err != nil {
+			return err
+		}
+		if err := e.db.SaveExtractedMemories(ctx, kind, agentID, id, source, items); err != nil {
+			return err
+		}
+	}
+	items, err := e.db.ListStagedMemories(ctx, agentID, source)
+	if err != nil {
+		return err
+	}
+	if err := e.indexMemories(ctx, items); err != nil {
+		return err
+	}
+	return e.db.CompleteMemoryJob(ctx, kind, agentID, id, source)
+}
+
+func (e *MemoryExtractor) extractMemories(ctx context.Context, agentID int64, ownerDesc, sourceRef string, msgs []llm.Message) ([]store.MemoryDraft, error) {
 	if len(msgs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	slog.Info("memory extract start", "source", sourceRef, "msgs", len(msgs))
 	if e.llm == nil {
-		return 0, fmt.Errorf("记忆抽取: LLM 未配置")
+		return nil, fmt.Errorf("记忆抽取: LLM 未配置")
+	}
+
+	corrections, err := e.db.RecentCorrections(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	var confirmed strings.Builder
+	writeConfirmedCorrections(&confirmed, corrections)
+	if confirmed.Len() > 0 {
+		confirmed.WriteString("这些纠正已经保存。不要再次抽取，也不要把与其冲突的旧说法作为当前事实。")
 	}
 
 	const win = 30
@@ -63,31 +108,19 @@ func (e *MemoryExtractor) ExtractConversation(ctx context.Context, agentID int64
 			end = len(msgs)
 		}
 		seg := msgs[start:end]
-		prompt := buildExtractPrompt(ownerDesc, seg)
+		prompt := buildExtractPrompt(ownerDesc, seg) + confirmed.String()
 		resp, _, err := e.llm.Complete(ctx, []llm.Message{{Role: "user", Content: prompt}})
 		if err != nil {
-			slog.Warn("memory extract seg", "source", sourceRef, "seg", start/win, "err", err)
-			continue // 单段失败不中断整体
+			return nil, fmt.Errorf("抽取第 %d 段: %w", start/win+1, err)
 		}
 		ext, err := parseExtraction(resp)
 		if err != nil {
-			slog.Warn("memory extract parse", "source", sourceRef, "err", err)
-			continue
+			return nil, fmt.Errorf("解析第 %d 段: %w", start/win+1, err)
 		}
 		all = append(all, ext)
 	}
-	if len(all) == 0 {
-		return 0, fmt.Errorf("记忆抽取: 所有分段均失败")
-	}
 
-	// 合并去重入库
-	type memItem struct {
-		id   int64
-		typ  string
-		text string
-		tags []string
-	}
-	var items []memItem
+	var items []store.MemoryDraft
 	seen := map[string]bool{}
 	collect := func(typ string, list []MemItem) {
 		for _, it := range list {
@@ -117,12 +150,7 @@ func (e *MemoryExtractor) ExtractConversation(ctx context.Context, agentID int64
 			if len(it.Tags) > 0 {
 				meta["tags"] = it.Tags
 			}
-			id, err := e.db.InsertMemory(ctx, agentID, typ, t, imp, sourceRef, meta)
-			if err != nil {
-				slog.Warn("memory insert", "err", err)
-				continue
-			}
-			items = append(items, memItem{id: id, typ: typ, text: t, tags: it.Tags})
+			items = append(items, store.MemoryDraft{Type: typ, Text: t, Importance: imp, Meta: meta})
 		}
 	}
 	for _, ext := range all {
@@ -130,44 +158,62 @@ func (e *MemoryExtractor) ExtractConversation(ctx context.Context, agentID int64
 		collect("episodic", ext.Episodic)
 		collect("procedural", ext.Procedural)
 	}
-	if len(items) == 0 {
-		slog.Info("memory extract none", "source", sourceRef)
-		return 0, nil // 没有值得记住的
-	}
+	return items, nil
+}
 
-	// 向量化并入库 Qdrant（payload 携带文本，检索时无需回查）
+func (e *MemoryExtractor) indexMemories(ctx context.Context, items []store.MemoryDraft) error {
+	if len(items) == 0 {
+		return nil
+	}
+	// 向量化并写入 Qdrant，召回后由 PostgreSQL 提供当前正文。
 	texts := make([]string, len(items))
 	for i, it := range items {
-		texts[i] = it.text
+		texts[i] = it.Text
 	}
 	vectors, err := e.emb.EmbedTexts(ctx, texts)
 	if err != nil {
-		return 0, fmt.Errorf("记忆向量化失败: %w", err)
+		return fmt.Errorf("记忆向量化失败: %w", err)
 	}
 	points := make([]Point, 0, len(items))
 	for i, it := range items {
 		payload := map[string]any{
-			"memory_id": it.id,
-			"type":      it.typ,
-			"text":      it.text,
+			"memory_id": it.ID,
+			"type":      it.Type,
+			"text":      it.Text,
 		}
-		if len(it.tags) > 0 {
-			payload["tags"] = it.tags
+		if tags, ok := it.Meta["tags"]; ok {
+			payload["tags"] = tags
 		}
 		points = append(points, Point{
-			ID:      uint64(it.id),
+			ID:      uint64(it.ID),
 			Vector:  vectors[i],
 			Payload: payload,
 		})
 	}
 	if err := e.qd.EnsureCollection(ctx, CollectionMemory, len(vectors[0])); err != nil {
-		return 0, err
+		return err
 	}
 	if err := e.qd.Upsert(ctx, CollectionMemory, points); err != nil {
-		return 0, fmt.Errorf("记忆向量入库失败: %w", err)
+		return fmt.Errorf("记忆向量入库失败: %w", err)
 	}
-	slog.Info("memory extracted", "agent_id", agentID, "count", len(items), "source", sourceRef)
-	return len(items), nil
+	return nil
+}
+
+// SyncEditedMemory processes the vector update or removal for a user edit.
+func (e *MemoryExtractor) SyncEditedMemory(ctx context.Context, agentID, id int64) error {
+	memory, err := e.db.GetMemory(ctx, agentID, id)
+	if err != nil {
+		return err
+	}
+	if memory.Status == "active" {
+		err = e.indexMemories(ctx, []store.MemoryDraft{{ID: id, Type: memory.Type, Text: memory.Text}})
+	} else {
+		err = e.qd.DeleteByIDs(ctx, CollectionMemory, []uint64{uint64(id)})
+	}
+	if err != nil {
+		return err
+	}
+	return e.db.CompleteMemoryVector(ctx, id, memory.Revision)
 }
 
 // buildExtractPrompt 构造单段抽取 prompt。
@@ -192,7 +238,7 @@ func buildExtractPrompt(ownerDesc string, messages []llm.Message) string {
 重要规则：
 1. 分身主人是：` + ownerDesc + `。本系统可能被多人使用，对话中出现的其他人的私人信息（他们的职业、家庭、偏好、事务等）一律不抽取
 2. 只有能明确归因于分身主人本人的信息才入库；不确定归属的，宁可不抽
-3. 忽略寒暄、泛泛的问答，以及不构成长期画像的临时信息
+3. 忽略寒暄、泛泛的问答，以及不构成长期画像的临时信息。分身自己的回答不能作为事实来源；用户明确纠正过的说法只保留纠正后的版本。
 4. 每条记忆是一句简洁、独立、陈述句，不超过100字；避免"用户说"这类转述
 5. importance：每条记忆给出 1-10 的长期重要度。8-10 只给影响分身主人画像、有长期价值的事实（身份、价值观、重大决策、长期习惯、关键偏好）；5-7 一般性事实；4 及以下的细节琐碎，宁可不抽
 6. 结构化字段（能从对话中明确提取就填，不确定就留空/0/省略）：

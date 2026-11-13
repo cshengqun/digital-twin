@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -46,13 +47,14 @@ func (d *DB) VerifyPassword(ctx context.Context, username, password string) (boo
 // ---------- 会话 ----------
 
 type Conversation struct {
-	ID              int64
-	UserID          int64
-	Title           string
-	Summary         string
-	SummaryUntilID  int64 // 滚动摘要已并入的最大消息 id（增量压缩标记）
-	LastAt          time.Time
-	CreateAt        time.Time
+	ID             int64
+	UserID         int64
+	Title          string
+	Summary        string
+	SummaryUntilID int64 // 滚动摘要已并入的最大消息 id（增量压缩标记）
+	LastAt         time.Time
+	CreateAt       time.Time
+	ExtractStatus  string
 }
 
 // UserIDByUsername 按用户名查用户 ID（会话归属校验用）。
@@ -87,7 +89,7 @@ func (d *DB) GetConversation(ctx context.Context, id int64) (*Conversation, erro
 // ListConversations 只返回当前用户自己的会话（多人共享分身时列表彼此隔离）。
 func (d *DB) ListConversations(ctx context.Context, userID int64) ([]Conversation, error) {
 	rows, err := d.PG.Query(ctx,
-		`SELECT id, user_id, title, summary, COALESCE(summary_until_id,0), last_active_at, created_at FROM conversations
+		`SELECT id, user_id, title, summary, COALESCE(summary_until_id,0), last_active_at, created_at, COALESCE(status, '') FROM conversations
 		 WHERE user_id = $1 ORDER BY last_active_at DESC LIMIT 30`, userID)
 	if err != nil {
 		return nil, err
@@ -96,7 +98,7 @@ func (d *DB) ListConversations(ctx context.Context, userID int64) ([]Conversatio
 	var out []Conversation
 	for rows.Next() {
 		var c Conversation
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.Summary, &c.SummaryUntilID, &c.LastAt, &c.CreateAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.Summary, &c.SummaryUntilID, &c.LastAt, &c.CreateAt, &c.ExtractStatus); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -117,39 +119,6 @@ func (d *DB) IsConversationActive(ctx context.Context, id int64, idle time.Durat
 func (d *DB) TouchConversation(ctx context.Context, id int64) error {
 	_, err := d.PG.Exec(ctx, "UPDATE conversations SET last_active_at = now() WHERE id = $1", id)
 	return err
-}
-
-// MarkConversationExtracted 记录该会话已完成整段记忆抽取。
-func (d *DB) MarkConversationExtracted(ctx context.Context, id int64) error {
-	_, err := d.PG.Exec(ctx, "UPDATE conversations SET mem_extracted_at = now() WHERE id = $1", id)
-	return err
-}
-
-// ExpiredConversationsToExtract 找出已超时（idle 内无活动）且尚未完成记忆抽取的会话，
-// 供后台扫描器自动收尾。条件：有消息、超时、抽取时间早于最后一条消息（或从未抽取）。
-func (d *DB) ExpiredConversationsToExtract(ctx context.Context, idle time.Duration, limit int) ([]int64, error) {
-	rows, err := d.PG.Query(ctx, `
-		SELECT c.id FROM conversations c
-		WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
-		  AND c.last_active_at < now() - $1::interval
-		  AND (c.mem_extracted_at IS NULL
-		       OR c.mem_extracted_at < (SELECT max(created_at) FROM messages m2 WHERE m2.conversation_id = c.id))
-		ORDER BY c.last_active_at ASC
-		LIMIT $2`,
-		fmt.Sprintf("%d seconds", int(idle.Seconds())), limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 func (d *DB) UpdateConversationSummary(ctx context.Context, id int64, summary string) error {
@@ -200,18 +169,31 @@ func (d *DB) SetConversationTitle(ctx context.Context, id int64, title string) e
 // ---------- 消息 ----------
 
 type Message struct {
-	ID        int64
-	Role      string
-	Content   string
-	Tokens    int
-	CreatedAt time.Time
+	ID        int64      `json:"id"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	Tokens    int        `json:"tokens"`
+	CreatedAt time.Time  `json:"created_at"`
+	Citations []Citation `json:"citations,omitempty"`
 }
 
 // RecentMessages 按 conversation_id 取最近 N 条原文（工作记忆装载，倒序取再正序返回）。
 func (d *DB) RecentMessages(ctx context.Context, conversationID int64, n int) ([]Message, error) {
+	return d.recentMessages(ctx, conversationID, n, false)
+}
+
+func (d *DB) RecentMessagesWithCitations(ctx context.Context, conversationID int64, n int) ([]Message, error) {
+	return d.recentMessages(ctx, conversationID, n, true)
+}
+
+func (d *DB) recentMessages(ctx context.Context, conversationID int64, n int, withCitations bool) ([]Message, error) {
+	citations := "'[]'::jsonb"
+	if withCitations {
+		citations = "citations"
+	}
 	rows, err := d.PG.Query(ctx,
-		`SELECT id, role, content, tokens, created_at FROM (
-			SELECT id, role, content, tokens, created_at FROM messages
+		`SELECT id, role, content, tokens, created_at, citations FROM (
+			SELECT id, role, content, tokens, created_at, `+citations+` AS citations FROM messages
 			WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2
 		) t ORDER BY created_at ASC`, conversationID, n)
 	if err != nil {
@@ -222,7 +204,7 @@ func (d *DB) RecentMessages(ctx context.Context, conversationID int64, n int) ([
 	var msgs []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.Tokens, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.Tokens, &m.CreatedAt, &m.Citations); err != nil {
 			return nil, err
 		}
 		msgs = append(msgs, m)
@@ -231,10 +213,25 @@ func (d *DB) RecentMessages(ctx context.Context, conversationID int64, n int) ([
 }
 
 func (d *DB) AppendMessage(ctx context.Context, conversationID int64, role, content string, tokens int) (int64, error) {
+	return d.appendMessage(ctx, conversationID, role, content, tokens, nil)
+}
+
+func (d *DB) AppendReply(ctx context.Context, conversationID int64, content string, tokens int, citations []Citation) (int64, error) {
+	return d.appendMessage(ctx, conversationID, "assistant", content, tokens, citations)
+}
+
+func (d *DB) appendMessage(ctx context.Context, conversationID int64, role, content string, tokens int, citations []Citation) (int64, error) {
+	if citations == nil {
+		citations = []Citation{}
+	}
+	data, err := json.Marshal(citations)
+	if err != nil {
+		return 0, err
+	}
 	var id int64
-	err := d.PG.QueryRow(ctx,
-		"INSERT INTO messages (conversation_id, role, content, tokens) VALUES ($1,$2,$3,$4) RETURNING id",
-		conversationID, role, content, tokens).Scan(&id)
+	err = d.PG.QueryRow(ctx,
+		"INSERT INTO messages (conversation_id, role, content, tokens, citations) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+		conversationID, role, content, tokens, data).Scan(&id)
 	return id, err
 }
 

@@ -1,8 +1,8 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,11 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"digital-twin/internal/rag"
 	"digital-twin/internal/store"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // knowledgeHandler 提供知识库管理 API：上传 TXT/HTML、导入 URL、列表、删除。
@@ -51,6 +54,10 @@ type knowledgeItem struct {
 
 // importFile POST /api/knowledge/import（multipart：file + 可选 title）
 func (h *knowledgeHandler) importFile(w http.ResponseWriter, r *http.Request) {
+	if h.indexer == nil {
+		http.Error(w, "知识入库未配置", http.StatusServiceUnavailable)
+		return
+	}
 	if err := r.ParseMultipartForm(h.maxUploadMB << 20); err != nil {
 		http.Error(w, "文件过大或格式错误", http.StatusBadRequest)
 		return
@@ -94,12 +101,15 @@ func (h *knowledgeHandler) importFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.launchIndex(docID)
 	writeJSON(w, map[string]any{"id": docID, "status": "pending"})
 }
 
 // importURL POST /api/knowledge/import-url {"url": "...", "title": "..."}
 func (h *knowledgeHandler) importURL(w http.ResponseWriter, r *http.Request) {
+	if h.indexer == nil {
+		http.Error(w, "知识入库未配置", http.StatusServiceUnavailable)
+		return
+	}
 	var req struct {
 		URL   string `json:"url"`
 		Title string `json:"title"`
@@ -144,7 +154,6 @@ func (h *knowledgeHandler) importURL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.launchIndex(docID)
 	writeJSON(w, map[string]any{"id": docID, "status": "pending"})
 }
 
@@ -174,28 +183,27 @@ func (h *knowledgeHandler) list(w http.ResponseWriter, r *http.Request) {
 
 // delete DELETE /api/knowledge/{id}
 func (h *knowledgeHandler) delete(w http.ResponseWriter, r *http.Request) {
-	var id int64
-	if _, err := fmt.Sscanf(r.PathValue("id"), "%d", &id); err != nil {
+	if h.indexer == nil {
+		http.Error(w, "知识入库未配置", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
-	if err := h.indexer.DeleteDoc(r.Context(), id); err != nil {
+	err = h.indexer.DeleteDoc(r.Context(), h.agentID, id)
+	switch {
+	case errors.Is(err, store.ErrKnowledgeBusy):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, pgx.ErrNoRows):
+		http.Error(w, "文档不存在", http.StatusNotFound)
+	case err != nil:
 		slog.Error("delete doc", "id", id, "err", err)
-		http.Error(w, "删除失败: "+err.Error(), http.StatusInternalServerError)
-		return
+		http.Error(w, "删除失败", http.StatusInternalServerError)
+	default:
+		writeJSON(w, map[string]any{"ok": true})
 	}
-	writeJSON(w, map[string]any{"ok": true})
-}
-
-// launchIndex 后台执行入库（异步，前端轮询列表状态）。
-func (h *knowledgeHandler) launchIndex(docID int64) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		if err := h.indexer.IndexDoc(ctx, docID); err != nil {
-			slog.Warn("index doc", "id", docID, "err", err)
-		}
-	}()
 }
 
 // isPrivateHost 阻止 SSRF：拒绝 localhost 与内网/保留地址。

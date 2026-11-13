@@ -1,0 +1,16 @@
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS citations JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE memories
+    ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS corrected_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS vector_status TEXT,
+    ADD COLUMN IF NOT EXISTS job_attempts INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS job_run_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS error_msg TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_memory_vector_jobs ON memories (agent_id, job_run_at, id)
+    WHERE vector_status IN ('pending', 'indexing');
+
+ALTER TABLE agents
+    ADD COLUMN IF NOT EXISTS memory_revision BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS profile_revision BIGINT NOT NULL DEFAULT 0;

@@ -12,11 +12,8 @@ import (
 
 // RetrievalItem 融合后的单条召回结果。
 type RetrievalItem struct {
-	Kind  string         // "knowledge" | "memory"
-	ID    uint64         // chunk id / memory id（用于回查与溯源）
-	Text  string         // 直接可注入上下文的文本
-	Score float64        // RRF 融合分
-	Meta  map[string]any // doc_id / title / memory type 等
+	store.Citation
+	Score float64
 }
 
 // Step 检索链路中的一个环节（供前端展示"本次执行流程"）。
@@ -98,57 +95,28 @@ func (r *Retriever) Retrieve(ctx context.Context, agentID int64, query string, s
 	stats.Add("记忆关键词召回", fmt.Sprintf("命中 %d 条", len(mkItems)), st)
 
 	acc := map[string]*RetrievalItem{}
-
-	// 1) 关键词路（知识 chunk）
+	add := func(kind string, id int64, rank int) {
+		key := fmt.Sprintf("%s:%d", kind, id)
+		item := acc[key]
+		if item == nil {
+			item = &RetrievalItem{Citation: store.Citation{Kind: kind, ID: id}}
+			acc[key] = item
+		}
+		item.Score += rrf(rank, r.rrfK)
+	}
 	for i, row := range kwItems {
-		key := fmt.Sprintf("knowledge:%d", row.ID)
-		if _, ok := acc[key]; !ok {
-			acc[key] = &RetrievalItem{Kind: "knowledge", ID: uint64(row.ID), Text: row.Content, Meta: map[string]any{"doc_id": row.DocID}}
-		}
-		acc[key].Score += rrf(i, r.rrfK)
+		add("knowledge", row.ID, i)
 	}
-	// 2) 向量路（知识 chunk）——只记录 ID/meta，文本最后统一回查
-	for i, s := range kdItems {
-		key := fmt.Sprintf("knowledge:%d", s.ID)
-		if _, ok := acc[key]; !ok {
-			m := map[string]any{}
-			if t, ok := s.Payload["title"]; ok {
-				m["title"] = t
-			}
-			if d, ok := s.Payload["doc_id"]; ok {
-				m["doc_id"] = d
-			}
-			acc[key] = &RetrievalItem{Kind: "knowledge", ID: s.ID, Meta: m}
-		}
-		acc[key].Score += rrf(i, r.rrfK)
+	for i, row := range kdItems {
+		add("knowledge", int64(row.ID), i)
 	}
-	// 3) 向量路（记忆）——payload 自带 text
-	for i, s := range mmItems {
-		key := fmt.Sprintf("memory:%d", s.ID)
-		if _, ok := acc[key]; !ok {
-			m := map[string]any{}
-			if t, ok := s.Payload["type"]; ok {
-				m["type"] = t
-			}
-			if mid, ok := s.Payload["memory_id"]; ok {
-				m["memory_id"] = mid
-			}
-			acc[key] = &RetrievalItem{Kind: "memory", ID: s.ID, Text: str(s.Payload["text"]), Meta: m}
-		}
-		acc[key].Score += rrf(i, r.rrfK)
-	}
-	// 4) 关键词路（记忆）——与向量路同 key，RRF 分数自然累加
 	for i, row := range mkItems {
-		key := fmt.Sprintf("memory:%d", row.ID)
-		if _, ok := acc[key]; !ok {
-			acc[key] = &RetrievalItem{Kind: "memory", ID: uint64(row.ID), Text: row.Text,
-				Meta: map[string]any{"type": row.Type, "memory_id": row.ID}}
-		}
-		acc[key].Score += rrf(i, r.rrfK)
+		add("memory", row.ID, i)
 	}
-
-	// 回查知识 chunk 文本（一次批量）
-	if err := r.fillKnowledgeTexts(ctx, acc); err != nil {
+	for i, row := range mmItems {
+		add("memory", int64(row.ID), i)
+	}
+	if err := r.fillSources(ctx, agentID, acc); err != nil {
 		return nil, err
 	}
 
@@ -182,38 +150,39 @@ func (r *Retriever) Retrieve(ctx context.Context, agentID int64, query string, s
 	return out, nil
 }
 
-// fillKnowledgeTexts 批量回查 knowledge_chunks 内容，填充文本。
-func (r *Retriever) fillKnowledgeTexts(ctx context.Context, acc map[string]*RetrievalItem) error {
-	ids := make([]uint64, 0, len(acc))
-	for _, it := range acc {
-		if it.Kind == "knowledge" && it.Text == "" {
-			ids = append(ids, it.ID)
+// fillSources reads authoritative text from PostgreSQL. A stale Qdrant point
+// can suggest a candidate, but it cannot surface archived or outdated text.
+func (r *Retriever) fillSources(ctx context.Context, agentID int64, items map[string]*RetrievalItem) error {
+	knowledge := make(map[int64]*RetrievalItem)
+	memories := make(map[int64]*RetrievalItem)
+	var chunkIDs, memoryIDs []int64
+	for _, item := range items {
+		if item.Kind == "knowledge" {
+			chunkIDs = append(chunkIDs, item.ID)
+			knowledge[item.ID] = item
+		} else {
+			memoryIDs = append(memoryIDs, item.ID)
+			memories[item.ID] = item
 		}
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-	rows, err := r.db.PG.Query(ctx, `SELECT id, content FROM knowledge_chunks WHERE id = ANY($1)`, ids)
-	if err != nil {
-		return fmt.Errorf("回查 chunk 文本: %w", err)
-	}
-	defer rows.Close()
-	texts := map[uint64]string{}
-	for rows.Next() {
-		var id int64
-		var content string
-		if err := rows.Scan(&id, &content); err != nil {
+	if len(chunkIDs) > 0 {
+		chunks, err := r.db.KnowledgeCitations(ctx, agentID, chunkIDs)
+		if err != nil {
 			return err
 		}
-		texts[uint64(id)] = content
+		for _, chunk := range chunks {
+			knowledge[chunk.ID].Citation = chunk
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, it := range acc {
-		if it.Kind == "knowledge" {
-			if t, ok := texts[it.ID]; ok {
-				it.Text = t
+	if len(memoryIDs) > 0 {
+		active, err := r.db.ActiveMemoriesByID(ctx, agentID, memoryIDs)
+		if err != nil {
+			return err
+		}
+		for id, m := range active {
+			memories[id].Citation = store.Citation{
+				Kind: "memory", ID: id, Title: store.MemoryTypeLabel(m.Type), Text: m.Text,
+				SourceRef: m.SourceRef, Revision: m.Revision, Corrected: m.CorrectedAt != nil,
 			}
 		}
 	}
@@ -223,13 +192,6 @@ func (r *Retriever) fillKnowledgeTexts(ctx context.Context, acc map[string]*Retr
 // rrf 倒数排名融合：score = 1/(k + rank)，rank 从 0 起。
 func rrf(rank, k int) float64 {
 	return 1.0 / float64(k+rank+1)
-}
-
-func str(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
 }
 
 // keywordRetrieve：query 拆 2-gram 关键词 → PG ILIKE 检索知识 chunk。
