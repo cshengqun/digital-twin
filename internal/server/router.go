@@ -1,0 +1,144 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+
+	"digital-twin/internal/config"
+	"digital-twin/internal/llm"
+	"digital-twin/internal/rag"
+	"digital-twin/internal/session"
+	"digital-twin/internal/store"
+	"digital-twin/internal/tools"
+	"digital-twin/internal/tools/impl"
+)
+
+const cookieName = "twin_sid"
+
+const defaultAgentID = 1 // 单用户架构：默认分身
+
+type Server struct {
+	cfg           *config.Config
+	db            *store.DB
+	sm            *session.Manager
+	llm           llm.Client
+	ret           *rag.Retriever
+	indexer       *rag.Indexer
+	extractor     *rag.MemoryExtractor
+	weeklyReporter *rag.WeeklyReporter
+	agentID       int64
+	ownerDesc     string
+}
+
+func New(cfg *config.Config, db *store.DB, sm *session.Manager, lc llm.Client, ret *rag.Retriever, indexer *rag.Indexer, extractor *rag.MemoryExtractor, weeklyReporter *rag.WeeklyReporter) *Server {
+	return &Server{cfg: cfg, db: db, sm: sm, llm: lc, ret: ret, indexer: indexer, extractor: extractor, weeklyReporter: weeklyReporter,
+		agentID: defaultAgentID, ownerDesc: "你（系统账号本人）"}
+}
+
+func (s *Server) Routes() http.Handler {
+	mux := http.NewServeMux()
+
+	auth := &authHandler{
+		db: s.db, sm: s.sm, cookie: cookieName, ttl: s.cfg.SessionTTL,
+		lim: &loginRateLimiter{rdb: s.db.Redis, limit: s.cfg.LoginRateLimit,
+			window: s.cfg.LoginRateWindow, lock: s.cfg.LoginLockout},
+	}
+	// 工具注册表（白名单）：Phase A 内置只读/幂等工具
+	reg := tools.NewRegistry()
+	reg.Register(impl.NewCalculator())
+	reg.Register(impl.NewCurrentTime())
+	reg.Register(impl.NewWebFetch())
+	if s.cfg.TavilyAPIKey != "" { // 配置了 Tavily key 才注册全网搜索
+		reg.Register(impl.NewWebSearch(s.cfg.TavilyAPIKey))
+	}
+	// 读取最近一期个人周报
+	reg.Register(tools.Tool{
+		Name:        "get_latest_weekly_report",
+		Description: "获取分身主人最近一期个人周报（每周日晚自动生成）。当用户问'我上周怎么样''最近状态''周报''这周复盘'时使用。",
+		Parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		Handler: func(ctx context.Context, _ json.RawMessage) (string, error) {
+			row, err := s.db.GetLatestWeeklyReport(ctx, s.agentID)
+			if err != nil {
+				return "", fmt.Errorf("读取周报失败：%v", err)
+			}
+			return fmt.Sprintf("周报周期：%s ~ %s\n纳入分析记忆数：%d\n\n%s",
+				row.WeekStart.Format("2006-01-02"),
+				row.WeekEnd.Format("2006-01-02"),
+				row.MemoryCount,
+				string(row.ContentJSON)), nil
+		},
+	})
+
+	// 工具循环用关闭深度思考的客户端（结构化 tool_calls 解析，秒级返回）
+	var toolLLM llm.Client
+	if s.cfg.ArkAPIKey != "" {
+		toolLLM = llm.NewArkClientNoThink(s.cfg.ArkBaseURL, s.cfg.ArkAPIKey, s.cfg.ArkModelID)
+	}
+
+	chat := &chatHandler{
+		db: s.db, llm: s.llm, cfg: s.cfg, model: modelName(s.llm),
+		agentID: defaultAgentID, ownerDesc: "你（系统账号本人）",
+		ret: s.ret, extractor: s.extractor,
+		tools: reg, toolLLM: toolLLM,
+	}
+	knowledge := newKnowledgeHandler(s.db, s.indexer, defaultAgentID)
+	journal := &journalHandler{db: s.db, agentID: defaultAgentID, ownerDesc: "你（系统账号本人）", extractor: s.extractor}
+
+	protected := AuthRequired(s.sm, cookieName)
+
+	// 公开路径（仅登录页与登录接口）
+	mux.HandleFunc("GET /login", auth.loginPage)
+	mux.HandleFunc("POST /api/login", auth.login)
+
+	// 其余全部要求登录
+	mux.Handle("GET /{$}", protected(http.HandlerFunc(s.page)))
+	mux.Handle("POST /api/logout", protected(http.HandlerFunc(auth.logout)))
+	mux.Handle("POST /api/chat", protected(http.HandlerFunc(chat.chat)))
+	mux.Handle("GET /api/conversations", protected(http.HandlerFunc(chat.listConversations)))
+	mux.Handle("GET /api/conversations/{id}/messages", protected(http.HandlerFunc(chat.conversationMessages)))
+
+	// Phase 1 · 知识库
+	mux.Handle("POST /api/knowledge/import", protected(http.HandlerFunc(knowledge.importFile)))
+	mux.Handle("POST /api/knowledge/import-url", protected(http.HandlerFunc(knowledge.importURL)))
+	mux.Handle("GET /api/knowledge", protected(http.HandlerFunc(knowledge.list)))
+	mux.Handle("DELETE /api/knowledge/{id}", protected(http.HandlerFunc(knowledge.delete)))
+
+	// 养成：日志喂养 + 人格画像
+	mux.Handle("POST /api/journal", protected(http.HandlerFunc(journal.submitJournal)))
+	mux.Handle("POST /api/journal/file", protected(http.HandlerFunc(journal.uploadJournalFile)))
+	mux.Handle("GET /api/agent/profile", protected(http.HandlerFunc(journal.getProfile)))
+	mux.Handle("POST /api/agent/profile/rebuild", protected(http.HandlerFunc(journal.rebuildProfile)))
+
+	return Recovery(AccessLog(mux))
+}
+
+func (s *Server) page(w http.ResponseWriter, r *http.Request) {
+	servePage(w, "web/chat.html")
+}
+
+// ---------- 小工具 ----------
+
+func servePage(w http.ResponseWriter, path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, "page not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(b)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func modelName(c llm.Client) string {
+	if c == nil {
+		return "unknown"
+	}
+	return "ark"
+}

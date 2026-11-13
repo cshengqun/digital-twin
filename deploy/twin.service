@@ -1,0 +1,20 @@
+[Unit]
+Description=Personal Digital Twin Agent
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/twin
+EnvironmentFile=/opt/twin/.env
+ExecStart=/opt/twin/twin
+Restart=always
+RestartSec=3
+# 基础加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

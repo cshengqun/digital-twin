@@ -1,0 +1,8 @@
+# Caddy 反向代理：自动 HTTPS（Let's Encrypt）
+# 把 twin.example.com 换成你的域名；Caddy 需要 80/443 对外开放。
+# 安装：apt install -y caddy  然后  caddy reload --config /etc/caddy/Caddyfile
+
+twin.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo of CSQ · 数字分身</title>
+<style>
+:root{--bg:#F6F4EF;--paper:#fff;--ink:#18202E;--ink2:#4A5263;--ink3:#8A91A0;--line:#E7E2D6;--accent:#2352E8;--accent-deep:#16338F;--accent-soft:#E9EEFC;--user-bubble:#2352E8;--user-bubble-deep:#16338F;--trace-bg:#F4F2EC;--ok:#1D6B3A;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--paper);border-bottom:1px solid var(--line);flex-shrink:0;}
+header .brand{font-weight:700;font-size:16px;color:var(--accent-deep);}
+header .brandsub{font-size:11px;font-weight:400;color:var(--ink3);margin-left:8px;}
+header .sp{flex:1;}
+.btn{background:var(--accent-soft);color:var(--accent-deep);border:1px solid #C9D6F8;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+.btn:hover{background:#DDE5FA;}
+.btn.ghost{background:transparent;border-color:var(--line);color:var(--ink2);}
+.btn.ghost:hover{background:#EFEDE6;}
+.layout{display:flex;flex:1;min-height:0;}
+.side{width:240px;border-right:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;flex-shrink:0;}
+.side .h{padding:14px 16px 8px;font-size:12px;color:var(--ink3);letter-spacing:.08em;}
+.slist{flex:1;overflow-y:auto;padding:4px 8px 12px;}
+.sitem{padding:10px 12px;border-radius:9px;font-size:13.5px;color:var(--ink2);cursor:pointer;border:1px solid transparent;margin-bottom:2px;line-height:1.5;}
+.sitem:hover{background:#F1EFE8;}
+.sitem.active{background:var(--accent-soft);border-color:#C9D6F8;color:var(--accent-deep);}
+.sitem .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sitem .d{font-size:11.5px;color:var(--ink3);margin-top:2px;}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.msgs{flex:1;overflow-y:auto;padding:20px 0 8px;}
+/* ---- 气泡布局：分身左 / 我右 ---- */
+.mrow{display:flex;max-width:880px;margin:0 auto;padding:6px 24px;gap:10px;}
+.mrow .avatar{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#5B8CFF,#2352E8);flex-shrink:0;margin-top:2px;}
+.mrow .acol{display:flex;flex-direction:column;min-width:0;max-width:calc(100% - 42px);}
+.mrow .bubble{font-size:15px;line-height:1.75;white-space:pre-wrap;word-break:break-word;padding:11px 15px;border-radius:16px;}
+.mrow.assistant{flex-direction:row;}
+.mrow.assistant .bubble{background:var(--paper);border:1px solid var(--line);border-top-left-radius:6px;color:var(--ink);}
+.mrow.assistant .bubble .statusline{color:var(--ink3);font-size:13px;margin:1px 0;}
+.mrow.user{flex-direction:row-reverse;}
+.mrow.user .bubble{background:var(--user-bubble);color:#fff;border-top-right-radius:6px;max-width:min(72%,560px);}
+/* ---- 执行流程面板 ---- */
+.trace{margin-top:7px;background:var(--trace-bg);border:1px solid var(--line);border-radius:10px;font-size:12px;overflow:hidden;}
+.trace-head{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;user-select:none;color:var(--ink2);}
+.trace-head .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+.trace-head .tt{font-weight:600;color:var(--ink2);}
+.trace-head .sum{color:var(--ink3);}
+.trace-head .arr{margin-left:auto;color:var(--ink3);font-size:11px;transition:transform .15s;}
+.trace.collapsed .arr{transform:rotate(-90deg);}
+.trace-body{display:flex;flex-direction:column;padding:2px 12px 8px;}
+.trace.collapsed .trace-body{display:none;}
+.tstep{display:flex;align-items:baseline;gap:8px;padding:3.5px 0;border-top:1px dashed rgba(0,0,0,.06);}
+.tstep:first-child{border-top:none;}
+.tstep .no{flex:0 0 16px;height:16px;border-radius:4px;background:#E3E8F8;color:var(--accent-deep);font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.tstep .nm{color:var(--ink);font-weight:600;white-space:nowrap;}
+.tstep .dt{color:var(--ink3);font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.tstep .ms{flex-shrink:0;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;}
+.typing{color:var(--ink3);font-size:13px;padding:8px 24px;max-width:880px;margin:0 auto;}
+.inputbar{flex-shrink:0;border-top:1px solid var(--line);background:var(--paper);padding:14px 20px 18px;}
+.inputbox{max-width:880px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;}
+textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;line-height:1.6;font-family:inherit;outline:none;max-height:180px;min-height:48px;}
+textarea:focus{border-color:var(--accent);}
+.send{flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;}
+.send:hover{background:var(--accent-deep);}
+.send:disabled{opacity:.5;cursor:not-allowed;}
+.hint{max-width:880px;margin:6px auto 0;font-size:12px;color:var(--ink3);}
+/* 知识库弹层 */
+.mask{position:fixed;inset:0;background:rgba(12,21,38,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+.panel{background:var(--paper);border-radius:16px;width:100%;max-width:640px;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(12,21,38,.18);}
+.panel .head{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);}
+.panel .head .t{font-weight:700;font-size:15px;flex:1;}
+.panel .head .close{cursor:pointer;font-size:20px;color:var(--ink3);line-height:1;background:none;border:none;padding:2px 6px;}
+.panel .body{flex:1;overflow-y:auto;padding:14px 18px;}
+.kb-form{display:flex;flex-direction:column;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+.kb-form .row{display:flex;gap:8px;align-items:center;}
+.kb-form input[type=file]{flex:1;font-size:13px;min-width:0;}
+.kb-form input[type=text]{flex:1;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;}
+.kb-form .mini{flex:0 0 96px;padding:8px 0;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;}
+.kb-form .mini:hover{background:var(--accent-deep);}
+.kb-form .note{font-size:12px;color:var(--ink3);}
+.klist{display:flex;flex-direction:column;gap:8px;padding-top:14px;}
+.kitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;}
+.kitem .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.kitem .st{font-size:12px;color:var(--ink2);}
+.kitem .st.ready{color:var(--ok);}.kitem .st.failed{color:#C0392B;}
+.kitem .del{cursor:pointer;color:var(--ink3);border:none;background:none;font-size:13px;}
+.kitem .del:hover{color:#C0392B;}
+.kempty{padding:30px 0;text-align:center;color:var(--ink3);font-size:13.5px;}
+/* 日记弹层 */
+.journal-form{display:flex;flex-direction:column;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+.journal-form textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.7;font-family:inherit;resize:vertical;outline:none;}
+.journal-form textarea:focus{border-color:var(--accent);}
+.journal-form .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.journal-form .mini{padding:8px 14px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;}
+.journal-form .mini:hover{background:var(--accent-deep);}
+.journal-form .mini:disabled{opacity:.5;cursor:not-allowed;}
+.journal-form .note{font-size:12px;color:var(--ink3);}
+.journal-form .jstatus{font-size:12.5px;color:var(--ok);min-height:16px;}
+.profile{padding-top:14px;}
+.profile .ptitle{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.profile .ptitle .mini{padding:4px 10px;font-size:12px;}
+.pitem{display:flex;gap:8px;padding:4px 0;font-size:13.5px;line-height:1.6;}
+.pitem .k{flex:0 0 62px;color:var(--ink3);}
+.pitem .v{flex:1;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.pempty{padding:16px 0;text-align:center;color:var(--ink3);font-size:13px;}
+@media (max-width:720px){ .side{display:none;} .mrow{padding:6px 12px;gap:8px;} .mrow .bubble{max-width:100%;} .mrow.user .bubble{max-width:80%;} }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">Echo of CSQ<span class="brandsub">我记忆与风格的回声</span></span>
+  <span class="sp"></span>
+  <button class="btn" id="kbBtn">知识库</button>
+  <button class="btn" id="journalBtn">日记</button>
+  <button class="btn" id="newBtn">新对话</button>
+  <button class="btn ghost" id="logoutBtn">登出</button>
+</header>
+<div class="layout">
+  <aside class="side">
+    <div class="h">最近会话</div>
+    <div class="slist" id="slist"></div>
+  </aside>
+  <main class="main">
+    <div class="msgs" id="msgs"></div>
+    <div class="typing" id="typing" style="display:none;"></div>
+    <div class="inputbar">
+      <div class="inputbox">
+        <textarea id="input" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="send" id="sendBtn">发送</button>
+      </div>
+      <div class="hint" id="hint"></div>
+    </div>
+  </main>
+</div>
+
+<!-- 知识库弹层 -->
+<div class="mask" id="kbMask" style="display:none;">
+  <div class="panel">
+    <div class="head"><span class="t">知识库</span><button class="close" id="kbClose">&times;</button></div>
+    <div class="body">
+      <div class="kb-form">
+        <div class="row">
+          <input type="text" id="kbUrl" placeholder="网页 URL（http/https）">
+          <button class="mini" id="kbUrlBtn">导入</button>
+        </div>
+        <div class="row">
+          <input type="file" id="kbFile" accept=".txt,.md,.markdown,.html,.htm">
+          <button class="mini" id="kbUpload">上传入库</button>
+        </div>
+        <div class="note">支持 TXT / Markdown / HTML（含网页 URL），自动分块并向量化；入库需要几秒到几十秒。</div>
+      </div>
+      <div class="klist" id="klist"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 日记弹层 -->
+<div class="mask" id="journalMask" style="display:none;">
+  <div class="panel">
+    <div class="head"><span class="t">日记与画像</span><button class="close" id="journalClose">&times;</button></div>
+    <div class="body">
+      <div class="journal-form">
+        <textarea id="journalText" placeholder="写写今天做了什么、想了什么、怎么决策的…&#10;提交后会自动抽取成记忆（事实/情景/方法），并更新你的画像"></textarea>
+        <div class="row">
+          <button class="mini" id="journalSubmit" style="margin-left:auto;">提交日记</button>
+        </div>
+        <div class="jstatus" id="journalStatus"></div>
+        <div class="note">每次提交都会抽取记忆；画像每天凌晨 02:30 自动重建。</div>
+      </div>
+      <div class="profile">
+        <div class="ptitle">我的画像</div>
+        <div id="profileBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentId = 0;      // 当前会话
+let busy = false;
+
+const AVATAR_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2.2"/><path d="M8.2 12.6c.5-2.6 1.9-4.4 3.8-4.4s3.3 1.8 3.8 4.4" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>';
+
+// ---------- SSE 流式对话 ----------
+async function send(text) {
+  busy = true; $('sendBtn').disabled = true;
+  appendMsg('user', text);
+  const col = appendMsg('assistant', '');
+  const bubble = col.querySelector('.bubble');
+  let started = false; // 是否已进入正式回复流（状态播报 → 流式回复）
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({conversation_id: currentId, message: text})
+    });
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        const line = block.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)); } catch { continue; }
+        if (ev.type === 'delta') {
+          if (!started) { bubble.textContent = ''; started = true; }
+          bubble.textContent += ev.delta;
+          $('msgs').scrollTop = $('msgs').scrollHeight;
+        } else if (ev.type === 'step') {
+          if (started) continue;
+          appendStatus(bubble, ev.step || '处理中…');
+          $('msgs').scrollTop = $('msgs').scrollHeight;
+        } else if (ev.type === 'tool') {
+          if (started) continue;
+          appendStatus(bubble, '调用工具：' + (ev.tool_name || '…') + (ev.tool_ms != null ? '（' + ev.tool_ms + 'ms）' : ''));
+          $('msgs').scrollTop = $('msgs').scrollHeight;
+        } else if (ev.type === 'done') {
+          currentId = ev.conversation_id;
+          if (ev.trace && ev.trace.length) renderTrace(col, ev.trace);
+          loadConversations();
+        } else if (ev.type === 'error') {
+          bubble.textContent = (started ? bubble.textContent : '') + (ev.delta || '出错了');
+        }
+      }
+    }
+  } catch (e) {
+    bubble.textContent = '请求失败：' + e.message;
+  }
+  busy = false; $('sendBtn').disabled = false;
+  $('input').focus();
+}
+
+// appendStatus 在 Agent 气泡内追加一行步骤状态（灰色小字）；回复流式开始时整体被替换。
+function appendStatus(bubble, text) {
+  const div = document.createElement('div');
+  div.className = 'statusline';
+  div.textContent = text;
+  bubble.appendChild(div);
+}
+
+// appendMsg：分身消息在左（带头像），我的消息在右（深色气泡）；不显示名字。
+function appendMsg(role, text) {
+  const row = document.createElement('div');
+  row.className = 'mrow ' + (role === 'user' ? 'user' : 'assistant');
+  if (role === 'assistant') {
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.innerHTML = AVATAR_SVG;
+    const col = document.createElement('div');
+    col.className = 'acol';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    col.appendChild(bubble);
+    row.appendChild(avatar); row.appendChild(col);
+  } else {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    row.appendChild(bubble);
+  }
+  $('msgs').appendChild(row);
+  $('msgs').scrollTop = $('msgs').scrollHeight;
+  return row.classList.contains('assistant') ? row.querySelector('.acol') : row;
+}
+
+// renderTrace：在分身消息下方渲染"本次执行流程"面板。
+function renderTrace(col, steps) {
+  const total = steps.reduce((s, x) => s + (x.ms || 0), 0);
+  const wrap = document.createElement('div');
+  wrap.className = 'trace';
+  let html = '<div class="trace-head"><span class="dot"></span><span class="tt">本次执行流程</span>' +
+    '<span class="sum">' + steps.length + ' 步 · ' + (total / 1000).toFixed(1) + 's</span><span class="arr">▼</span></div>' +
+    '<div class="trace-body">';
+  steps.forEach((s, i) => {
+    html += '<div class="tstep"><span class="no">' + (i + 1) + '</span><span class="nm"></span><span class="dt"></span><span class="ms"></span></div>';
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.tstep').forEach((el, i) => {
+    el.querySelector('.nm').textContent = steps[i].name;
+    el.querySelector('.dt').textContent = steps[i].detail || '';
+    el.querySelector('.ms').textContent = steps[i].ms + 'ms';
+  });
+  wrap.querySelector('.trace-head').onclick = () => wrap.classList.toggle('collapsed');
+  col.appendChild(wrap);
+}
+
+// ---------- 会话列表 / 历史 ----------
+async function loadConversations() {
+  try {
+    const res = await fetch('/api/conversations');
+    if (!res.ok) return;
+    const list = await res.json();
+    const slist = $('slist'); slist.innerHTML = '';
+    for (const it of list) {
+      const d = document.createElement('div');
+      d.className = 'sitem' + (it.id === currentId ? ' active' : '');
+      d.innerHTML = '<div class="t"></div><div class="d"></div>';
+      d.querySelector('.t').textContent = it.title;
+      d.querySelector('.d').textContent = it.last;
+      d.onclick = () => openConversation(it.id);
+      slist.appendChild(d);
+    }
+  } catch {}
+}
+
+async function openConversation(id) {
+  if (busy) return;
+  currentId = id;
+  $('msgs').innerHTML = '';
+  loadConversations();
+  try {
+    const res = await fetch('/api/conversations/' + id + '/messages');
+    if (!res.ok) return;
+    const msgs = await res.json();
+    for (const m of msgs) appendMsg(m.role === 'user' ? 'user' : 'assistant', m.content);
+  } catch {}
+}
+
+// ---------- 输入 ----------
+const input = $('input'), sendBtn = $('sendBtn');
+function submit() {
+  const t = input.value.trim();
+  if (!t || busy) return;
+  input.value = '';
+  send(t);
+}
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+});
+sendBtn.onclick = submit;
+// newBtn：单纯新开一个会话（不结束当前会话；旧会话闲置 30 分钟后由系统自动收尾并抽取记忆）
+$('newBtn').onclick = () => {
+  if (busy) return;
+  currentId = 0; $('msgs').innerHTML = '';
+  const col = appendMsg('assistant', '');
+  col.querySelector('.bubble').textContent = '新对话已开启。聊点什么？';
+  loadConversations(); input.focus();
+};
+$('logoutBtn').onclick = async () => {
+  await fetch('/api/logout', {method: 'POST'});
+  location.href = '/login';
+};
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+});
+
+// ---------- 知识库 ----------
+let kbTimer = null;
+function kbOpen() {
+  $('kbMask').style.display = 'flex';
+  kbRefresh();
+  if (kbTimer) clearInterval(kbTimer);
+  kbTimer = setInterval(kbRefresh, 3000);
+}
+function kbClose() {
+  $('kbMask').style.display = 'none';
+  if (kbTimer) { clearInterval(kbTimer); kbTimer = null; }
+}
+async function kbRefresh() {
+  try {
+    const res = await fetch('/api/knowledge');
+    if (res.status === 401) { kbClose(); location.href = '/login'; return; }
+    if (!res.ok) return;
+    const docs = await res.json();
+    const list = $('klist'); list.innerHTML = '';
+    if (!docs.length) {
+      list.innerHTML = '<div class="kempty">还没有知识文档，上传 TXT / HTML 或导入网页开始构建</div>';
+      return;
+    }
+    let busy = false;
+    for (const d of docs) {
+      if (d.status === 'pending' || d.status === 'indexing') busy = true;
+      const el = document.createElement('div');
+      el.className = 'kitem';
+      const stText = {pending:'排队中', indexing:'入库中…', ready:'已就绪 · ' + d.chunk_count + ' 块', failed:'失败', deleted:'已删除'}[d.status] || d.status;
+      el.innerHTML = '<span class="t"></span><span class="st ' + (d.status === 'ready' ? 'ready' : (d.status === 'failed' ? 'failed' : '')) + '"></span><button class="del" title="删除">删除</button>';
+      el.querySelector('.t').textContent = d.title + (d.error_msg ? '（' + d.error_msg + '）' : '');
+      el.querySelector('.st').textContent = stText;
+      el.querySelector('.del').onclick = async () => {
+        await fetch('/api/knowledge/' + d.id, {method: 'DELETE'});
+        kbRefresh();
+      };
+      list.appendChild(el);
+    }
+    if (!busy && kbTimer) { clearInterval(kbTimer); kbTimer = null; }
+  } catch {}
+}
+$('kbBtn').onclick = kbOpen;
+$('kbClose').onclick = kbClose;
+$('kbMask').onclick = e => { if (e.target === $('kbMask')) kbClose(); };
+$('kbUpload').onclick = async () => {
+  const f = $('kbFile').files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  const btn = $('kbUpload'); btn.disabled = true;
+  try {
+    const res = await fetch('/api/knowledge/import', {method: 'POST', body: fd});
+    if (res.ok) { $('kbFile').value = ''; kbRefresh(); }
+  } finally { btn.disabled = false; }
+};
+$('kbUrlBtn').onclick = async () => {
+  const u = $('kbUrl').value.trim();
+  if (!u) return;
+  const btn = $('kbUrlBtn'); btn.disabled = true;
+  try {
+    const res = await fetch('/api/knowledge/import-url', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: u})
+    });
+    if (res.ok) { $('kbUrl').value = ''; kbRefresh(); }
+    else { const t = await res.text(); alert(t || '导入失败'); }
+  } finally { btn.disabled = false; }
+};
+
+// ---------- 日记与画像 ----------
+function journalOpen() {
+  $('journalMask').style.display = 'flex';
+  $('journalStatus').textContent = '';
+  loadProfile();
+}
+function journalClose() { $('journalMask').style.display = 'none'; }
+$('journalBtn').onclick = journalOpen;
+$('journalClose').onclick = journalClose;
+$('journalMask').onclick = e => { if (e.target === $('journalMask')) journalClose(); };
+
+function setJStatus(t) { $('journalStatus').textContent = t; }
+function digestAndRefresh() {
+  setJStatus('已提交，正在消化记忆…（画像每天凌晨自动重建）');
+  setTimeout(loadProfile, 4000); // 异步消化，稍后刷新（画像等凌晨重建）
+}
+$('journalSubmit').onclick = async () => {
+  const t = $('journalText').value.trim();
+  if (!t) return;
+  const btn = $('journalSubmit'); btn.disabled = true;
+  try {
+    const res = await fetch('/api/journal', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: t})
+    });
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) { const b = await res.text(); setJStatus('提交失败：' + (b || res.status)); return; }
+    $('journalText').value = '';
+    digestAndRefresh();
+  } finally { btn.disabled = false; }
+};
+$('profileRebuild') && ($('profileRebuild').onclick = async () => {
+  const btn = $('profileRebuild'); btn.disabled = true;
+  setJStatus('正在重建画像…');
+  try {
+    const res = await fetch('/api/agent/profile/rebuild', {method: 'POST'});
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) { const b = await res.text(); setJStatus('重建失败：' + b); return; }
+    const data = await res.json();
+    renderProfile(data);
+    setJStatus('画像已重建');
+  } finally { btn.disabled = false; }
+});
+function renderProfile(data) {
+  const p = data.profile || {}, s = data.state || {};
+  const body = $('profileBody');
+  const has = Object.values(p).some(v => (Array.isArray(v) ? v.length : v));
+  const hasS = Object.values(s).some(v => (Array.isArray(v) ? v.length : v));
+  if (!has && !hasS) {
+    body.innerHTML = '<div class="pempty">还没有画像数据。画像每天凌晨 02:30 自动生成；也可以点「重建画像」立即根据已有记忆生成。</div>';
+    return;
+  }
+  const arr = v => Array.isArray(v) ? v.join('；') : (v || '');
+  const rows = [
+    ['身份', arr(p.identity)], ['性格', arr(p.personality)], ['语气', arr(p.tone)],
+    ['价值观', arr(p.values)], ['口头禅', arr(p.catchphrases)], ['禁忌', arr(p.taboos)],
+    ['知识版图', arr(p.knowledge_map)]
+  ];
+  let html = '';
+  rows.forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v"></span></div>'; });
+  if (hasS) {
+    html += '<div class="ptitle" style="margin-top:10px;">近期状态</div>';
+    [['当前关注', arr(s.focus)], ['进行中', arr(s.active_projects)], ['近期情绪', arr(s.recent_mood)], ['近期变化', arr(s.recent_updates)]]
+      .forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v"></span></div>'; });
+  }
+  body.innerHTML = html;
+  // 文本节点全部用 textContent 写入（防注入）
+  body.querySelectorAll('.pitem').forEach(el => {
+    const k = el.querySelector('.k');
+    const v = el.querySelector('.v');
+    const key = k.textContent;
+    const row = [['身份', arr(p.identity)], ['性格', arr(p.personality)], ['语气', arr(p.tone)],
+      ['价值观', arr(p.values)], ['口头禅', arr(p.catchphrases)], ['禁忌', arr(p.taboos)],
+      ['知识版图', arr(p.knowledge_map)], ['当前关注', arr(s.focus)], ['进行中', arr(s.active_projects)],
+      ['近期情绪', arr(s.recent_mood)], ['近期变化', arr(s.recent_updates)]].find(r => r[0] === key);
+    v.textContent = row ? row[1] : '';
+  });
+}
+async function loadProfile() {
+  try {
+    const res = await fetch('/api/agent/profile');
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) return;
+    renderProfile(await res.json());
+  } catch {}
+}
+
+// ---------- 启动 ----------
+(async function init() {
+  const res = await fetch('/api/conversations');
+  if (res.status === 401) { location.href = '/login'; return; }
+  loadConversations();
+  input.focus();
+})();
+</script>
+</body>
+</html>
