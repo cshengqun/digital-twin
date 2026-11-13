@@ -89,6 +89,14 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	partitionsDone := make(chan struct{})
+	go func() {
+		defer close(partitionsDone)
+		db.MaintainPartitions(runCtx)
+	}()
+
 	go func() {
 		slog.Info("server started", "addr", cfg.Addr, "env", cfg.Env)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -97,12 +105,11 @@ func main() {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	<-runCtx.Done()
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+	<-partitionsDone
 	slog.Info("server stopped")
 }

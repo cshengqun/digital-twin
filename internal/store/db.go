@@ -65,29 +65,67 @@ func (d *DB) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// EnsurePartitions 为按 created_at 月度分区的表创建本月与下月分区。
-// 第一版覆盖 messages 与 knowledge_chunks；缺失分区会导致插入报错，因此每次启动都检查。
-// 分区边界对齐到自然月 1 号，避免因重启日期不同产生漂移与范围重叠。
+// EnsurePartitions 为 messages 和 knowledge_chunks 补齐本月与下月的分区。
 func (d *DB) EnsurePartitions(ctx context.Context) error {
-	now := time.Now()
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	tables := []string{"messages", "knowledge_chunks"}
-	for _, tbl := range tables {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	tx, err := d.PG.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin partition maintenance: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 用同一个数据库会话确定当前月份并解释分区边界，沿用已有分区的日期写法。
+	var monthStart time.Time
+	if err := tx.QueryRow(ctx, `SELECT date_trunc('month', now())::date`).Scan(&monthStart); err != nil {
+		return fmt.Errorf("get database month: %w", err)
+	}
+	var created []string
+	for _, tbl := range []string{"messages", "knowledge_chunks"} {
 		for _, t := range []time.Time{monthStart, monthStart.AddDate(0, 1, 0)} {
 			name := fmt.Sprintf("%s_%s", tbl, t.Format("200601"))
-			from := t.UTC().Format("2006-01-02")
-			to := t.AddDate(0, 1, 0).UTC().Format("2006-01-02")
+			// 已存在时跳过 DDL，避免例行检查申请父表的排他锁。
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, name).Scan(&exists); err != nil {
+				return fmt.Errorf("check partition %s: %w", name, err)
+			}
+			if exists {
+				continue
+			}
 			sql := fmt.Sprintf(
 				"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')",
-				name, tbl, from, to,
+				name, tbl, t.Format(time.DateOnly), t.AddDate(0, 1, 0).Format(time.DateOnly),
 			)
-			if _, err := d.PG.Exec(ctx, sql); err != nil {
+			if _, err := tx.Exec(ctx, sql); err != nil {
 				return fmt.Errorf("ensure partition %s: %w", name, err)
+			}
+			created = append(created, name)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit partition maintenance: %w", err)
+	}
+	if len(created) > 0 {
+		slog.Info("monthly partitions created", "partitions", created)
+	}
+	return nil
+}
+
+// MaintainPartitions 在启动检查后定期续建分区，失败时在下一轮重试。
+func (d *DB) MaintainPartitions(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := d.EnsurePartitions(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("maintain monthly partitions", "err", err)
 			}
 		}
 	}
-	slog.Info("partitions ensured", "tables", strings.Join(tables, ","))
-	return nil
 }
 
 func (d *DB) Close() {
