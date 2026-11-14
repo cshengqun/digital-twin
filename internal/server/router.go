@@ -89,9 +89,12 @@ func (s *Server) Routes() http.Handler {
 
 	protected := AuthRequired(s.sm, cookieName)
 
-	// 公开路径（仅登录页与登录接口）
+	// 公开路径
 	mux.HandleFunc("GET /login", auth.loginPage)
 	mux.HandleFunc("POST /api/login", auth.login)
+	mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/favicon.png")
+	})
 
 	// 其余全部要求登录
 	mux.Handle("GET /{$}", protected(http.HandlerFunc(s.page)))
