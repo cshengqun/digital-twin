@@ -50,7 +50,7 @@ cp .env.example .env
 go run ./cmd/server
 ```
 
-打开 `http://localhost:8080` → 登录 → 对话；右上角「知识库」上传 TXT / Markdown / HTML 或导入网页。
+打开 `http://localhost:8080` 查看个人主页；进入 `http://localhost:8080/twin/` → 登录 → 对话。数字分身页右上角「知识库」支持上传 TXT / Markdown / HTML 或导入网页。
 
 ## 已实现
 

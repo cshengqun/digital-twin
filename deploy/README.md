@@ -55,7 +55,7 @@ curl -s http://127.0.0.1:8080/login | head -1   # 页面可达
 docker compose -f /opt/twin/docker-compose.yml ps  # 三件套健康
 ```
 
-浏览器打开 `http://<IP>:8080`（或 `https://twin.example.com`）→ 用 ADMIN 账号登录 → 对话页右上角「知识库」上传第一篇文档试试。
+浏览器打开 `http://<IP>:8080`（或 `https://twin.example.com`）查看个人主页；进入 `/twin/` → 用 ADMIN 账号登录 → 对话页右上角「知识库」上传第一篇文档试试。
 
 ## 五、运维
 
@@ -74,5 +74,5 @@ docker compose -f /opt/twin/docker-compose.yml ps  # 三件套健康
 ## 七、安全提醒
 
 - 服务器只对公网开放 22/80/443；PG/Redis/Qdrant 只绑定 127.0.0.1（docker-compose 已配）
-- 登录密码走 argon2id + 登录限流；全站除 /login 外都需登录
+- 登录密码走 argon2id + 登录限流；个人主页公开，数字分身页面与业务 API 均需登录
 - 定期 `pg_dump` 备份到本机或对象存储

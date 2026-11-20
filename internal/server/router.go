@@ -89,15 +89,19 @@ func (s *Server) Routes() http.Handler {
 
 	protected := AuthRequired(s.sm, cookieName)
 
-	// 公开路径
+	// 公开路径：个人主页、登录页与认证接口
+	mux.HandleFunc("GET /{$}", s.homePage)
 	mux.HandleFunc("GET /login", auth.loginPage)
 	mux.HandleFunc("POST /api/login", auth.login)
 	mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "web/favicon.png")
 	})
+	mux.HandleFunc("GET /twin", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/twin/", http.StatusPermanentRedirect)
+	})
 
-	// 其余全部要求登录
-	mux.Handle("GET /{$}", protected(http.HandlerFunc(s.page)))
+	// 数字分身页面与其余 API 要求登录
+	mux.Handle("GET /twin/{$}", protected(http.HandlerFunc(s.twinPage)))
 	mux.Handle("POST /api/logout", protected(http.HandlerFunc(auth.logout)))
 	mux.Handle("POST /api/chat", protected(http.HandlerFunc(chat.chat)))
 	mux.Handle("GET /api/conversations", protected(http.HandlerFunc(chat.listConversations)))
@@ -128,7 +132,11 @@ func (s *Server) Routes() http.Handler {
 	return Recovery(AccessLog(mux))
 }
 
-func (s *Server) page(w http.ResponseWriter, r *http.Request) {
+func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
+	servePage(w, "web/index.html")
+}
+
+func (s *Server) twinPage(w http.ResponseWriter, r *http.Request) {
 	servePage(w, "web/chat.html")
 }
 

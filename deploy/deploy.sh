@@ -16,7 +16,8 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/twin ./cmd/serv
 
 echo "[2/6] 上传二进制、页面与迁移脚本 ..."
 ssh "$REMOTE" "mkdir -p $DIR"
-scp /tmp/twin "$REMOTE:$DIR/twin"
+scp /tmp/twin "$REMOTE:$DIR/twin.next"
+ssh "$REMOTE" "chmod 755 $DIR/twin.next && mv $DIR/twin.next $DIR/twin"
 scp -r web migrations docker-compose.yml .env.example "$REMOTE:$DIR/"
 
 echo "[3/6] 生成 .env（已存在则跳过）..."
