@@ -96,6 +96,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "web/favicon.png")
 	})
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("web/assets"))))
+	mux.Handle("POST /api/weutil/proxy", newWeutilProxyHandler(newWeutilProxyClient()))
 	mux.HandleFunc("GET /twin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/twin/", http.StatusPermanentRedirect)
 	})

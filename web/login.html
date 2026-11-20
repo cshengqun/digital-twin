@@ -3,57 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>登录 · 个人数字分身</title>
+<meta name="robots" content="noindex">
+<title>登录 · Echo of CSQ</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+<link rel="stylesheet" href="/assets/site.css">
 <style>
-:root{--bg:#F6F4EF;--paper:#fff;--ink:#18202E;--ink2:#4A5263;--line:#E3DFD4;--accent:#2352E8;--accent-deep:#16338F;--err:#B23A3A;}
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
-.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:36px 32px;width:100%;max-width:380px;box-shadow:0 8px 30px rgba(12,21,38,.06);}
-.card h1{font-size:22px;margin-bottom:4px;}
-.card .sub{color:var(--ink2);font-size:13.5px;margin-bottom:24px;}
-label{display:block;font-size:13px;color:var(--ink2);margin:14px 0 6px;}
-input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;font-size:15px;outline:none;transition:border-color .15s;}
-input:focus{border-color:var(--accent);}
-button{width:100%;margin-top:22px;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;}
-button:hover{background:var(--accent-deep);}
-button:disabled{opacity:.6;cursor:not-allowed;}
-.err{color:var(--err);font-size:13px;margin-top:12px;min-height:18px;}
+:root{--bg:#f4f2ec;--paper:#fffefa;--ink:#17241d;--muted:#647068;--line:#d8ddd4;--accent:#176b4d;--forest:#173b30;--soft:#e2eee6;--err:#a33f35;--mono:"SFMono-Regular",Consolas,monospace}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}.login-main{flex:1;display:grid;place-items:center;width:min(100% - 40px,980px);margin:auto;padding:64px 0}.login-grid{display:grid;grid-template-columns:1fr 390px;gap:80px;align-items:center;width:100%}.eyebrow{color:var(--accent);font:650 11px var(--mono);letter-spacing:.12em}.intro h1{margin:14px 0 18px;font-size:clamp(38px,5vw,62px);line-height:1.1;letter-spacing:-.055em}.intro p{max-width:460px;margin:0;color:var(--muted);font-size:16px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:32px;box-shadow:0 18px 45px rgba(27,48,37,.07)}.card h2{font-size:22px;margin:0 0 4px}.card .sub{color:var(--muted);font-size:13px;margin-bottom:24px}label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#faf9f5;font-size:15px;outline:none}input:focus{border-color:var(--accent);background:var(--paper)}input:focus-visible{outline:3px solid #a6c5b2;outline-offset:2px}.submit{width:100%;margin-top:22px;border:0}.submit:disabled{opacity:.6;cursor:not-allowed}.err{color:var(--err);font-size:13px;margin-top:12px;min-height:20px}.privacy{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}@media(max-width:760px){.login-grid{grid-template-columns:1fr;gap:38px}.intro h1{font-size:42px}.login-main{padding:44px 0}.card{padding:25px}}
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>个人数字分身</h1>
-  <div class="sub">登录后开始对话 · 单用户私有部署</div>
-  <form id="form">
-    <label for="username">用户名</label>
-    <input id="username" name="username" autocomplete="username" required autofocus>
-    <label for="password">密码</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button id="btn" type="submit">登录</button>
-    <div class="err" id="err"></div>
-  </form>
-</div>
+<header class="site-header"><div class="site-wrap site-header-inner"><a class="site-wordmark" href="/" aria-label="csq 个人网站首页">csq<span>.</span><small>personal website</small></a><nav class="site-nav" aria-label="全站主导航"><a href="/">首页</a><a class="active" href="/twin/" aria-current="page">Digital Twin</a><a href="/trends/">Trends</a><a href="/tools/">WeUtil</a></nav><span class="site-domain">iamcsq.top</span></div></header>
+<main class="login-main">
+  <div class="login-grid">
+    <section class="intro"><div class="eyebrow">PERSONAL DIGITAL TWIN</div><h1>Echo of CSQ</h1><p>与个人知识、记忆和过往记录对话。登录后进入你的私有工作区。</p></section>
+    <section class="card" aria-labelledby="login-title"><h2 id="login-title">欢迎回来</h2><div class="sub">单用户私有部署 · 登录后开始对话</div><form id="form"><label for="username">用户名</label><input id="username" name="username" autocomplete="username" required autofocus><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required><button class="site-button submit" id="btn" type="submit">登录</button><div class="err" id="err" role="alert"></div></form><div class="privacy">会话通过安全 Cookie 维护；知识库与对话仅属于当前账号。</div></section>
+  </div>
+</main>
+<footer class="site-footer"><div class="site-wrap site-footer-inner"><span>© csq · Echo of CSQ</span><a href="/">返回个人首页</a><span class="site-footer-meta">PRIVATE WORKSPACE</span></div></footer>
 <script>
 const form = document.getElementById('form');
 const btn = document.getElementById('btn');
 const err = document.getElementById('err');
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  btn.disabled = true; err.textContent = '';
+  btn.disabled = true; btn.textContent = '登录中…'; err.textContent = '';
   try {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username: form.username.value, password: form.password.value})
-    });
+    const res = await fetch('/api/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value,password:form.password.value})});
     if (res.ok) { location.href = '/twin/'; return; }
-    if (res.status === 429) { err.textContent = '尝试过于频繁，请稍后再试'; }
-    else { err.textContent = '用户名或密码错误'; }
-  } catch {
-    err.textContent = '网络错误，请重试';
-  }
-  btn.disabled = false;
+    if (res.status === 429) err.textContent = '尝试过于频繁，请稍后再试';
+    else err.textContent = '用户名或密码错误';
+  } catch { err.textContent = '网络错误，请重试'; }
+  btn.disabled = false; btn.textContent = '登录';
 });
 </script>
 </body>
