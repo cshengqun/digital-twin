@@ -86,6 +86,8 @@ func (s *Server) Routes() http.Handler {
 	}
 	knowledge := newKnowledgeHandler(s.db, s.indexer, defaultAgentID)
 	journal := &journalHandler{db: s.db, agentID: defaultAgentID, ownerDesc: "你（系统账号本人）", extractor: s.extractor}
+	blog := &blogHandler{db: s.db, agentID: defaultAgentID, extractor: s.extractor, indexer: s.indexer,
+		mediaDir: s.cfg.BlogMediaDir, importToken: s.cfg.BlogImportToken}
 
 	protected := AuthRequired(s.sm, cookieName)
 
@@ -96,8 +98,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "web/favicon.png")
 	})
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("web/assets"))))
+	// 页面与前端资源都要求每次向服务器校验（未变化则 304），避免浏览器按启发式规则沿用旧版 JS/CSS。
+	mux.Handle("GET /assets/", noCache(http.StripPrefix("/assets/", http.FileServer(http.Dir("web/assets")))))
+	mux.Handle("POST /api/utils/proxy", newWeutilProxyHandler(newWeutilProxyClient()))
 	mux.Handle("POST /api/weutil/proxy", newWeutilProxyHandler(newWeutilProxyClient()))
+	mux.HandleFunc("GET /blogs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/blogs/", http.StatusPermanentRedirect)
+	})
+	mux.HandleFunc("GET /blogs/{$}", s.blogsPage)
+	mux.HandleFunc("GET /api/blogs", blog.listPublic)
+	mux.HandleFunc("GET /api/blogs/{id}", blog.getPublic)
+	mux.Handle("GET "+blogMediaURLPrefix, s.serveBlogMedia())
+	// 飞书导入：Bearer Token 鉴权，未配置 token 时一律 404。
+	mux.Handle("POST /api/blogs/import", http.HandlerFunc(blog.importPost))
 	mux.HandleFunc("GET /twin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/twin/", http.StatusPermanentRedirect)
 	})
@@ -131,6 +144,13 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/agent/profile", protected(http.HandlerFunc(journal.getProfile)))
 	mux.Handle("POST /api/agent/profile/rebuild", protected(http.HandlerFunc(journal.rebuildProfile)))
 
+	// Blogs: public writing that feeds both long-term memory and the knowledge base.
+	mux.Handle("POST /api/blogs", protected(http.HandlerFunc(blog.publish)))
+	mux.Handle("PUT /api/blogs/{id}", protected(http.HandlerFunc(blog.update)))
+	mux.Handle("POST /api/blogs/upload", protected(http.HandlerFunc(blog.uploadImage)))
+	mux.Handle("GET /api/blogs/manage", protected(http.HandlerFunc(blog.listJobs)))
+	mux.Handle("POST /api/blogs/{id}/retry", protected(s.retryJob(store.JournalJob, s.extractor != nil)))
+
 	return Recovery(AccessLog(mux))
 }
 
@@ -142,6 +162,10 @@ func (s *Server) twinPage(w http.ResponseWriter, r *http.Request) {
 	servePage(w, "web/chat.html")
 }
 
+func (s *Server) blogsPage(w http.ResponseWriter, r *http.Request) {
+	servePage(w, "web/blogs.html")
+}
+
 // ---------- 小工具 ----------
 
 func servePage(w http.ResponseWriter, path string) {
@@ -151,7 +175,16 @@ func servePage(w http.ResponseWriter, path string) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(b)
+}
+
+// noCache 让浏览器每次都带条件请求回来校验（Last-Modified → 304），而不是在本地缓存期内直接沿用旧文件。
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

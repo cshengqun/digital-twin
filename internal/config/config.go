@@ -10,9 +10,9 @@ import (
 )
 
 type Config struct {
-	Addr    string        // HTTP 监听地址，如 ":8080"
-	BaseURL string        // 对外基础地址，用于 cookie / 跳转
-	Env     string        // dev | prod
+	Addr    string // HTTP 监听地址，如 ":8080"
+	BaseURL string // 对外基础地址，用于 cookie / 跳转
+	Env     string // dev | prod
 
 	PostgresDSN string
 	RedisAddr   string
@@ -25,7 +25,7 @@ type Config struct {
 
 	// Phase 1 · 检索与向量（B 方案：Qdrant 自建在服务器上，docker 部署）
 	EmbeddingModel string // 方舟 embedding 模型 ID，如 doubao-embedding-text-240715
-	QdrantAddr    string // 如 http://localhost:6333（本地开发）/ http://<服务器内网IP>:6333
+	QdrantAddr     string // 如 http://localhost:6333（本地开发）/ http://<服务器内网IP>:6333
 
 	// Phase A · 工具：Tavily 搜索（免费额度 1000 次/月）。为空时不注册 web_search 工具。
 	TavilyAPIKey string
@@ -37,7 +37,7 @@ type Config struct {
 	// 会话与安全
 	SessionTTL      time.Duration // 登录态有效期
 	SessionIDBytes  int
-	LoginRateLimit  int           // 每窗口允许失败次数
+	LoginRateLimit  int // 每窗口允许失败次数
 	LoginRateWindow time.Duration
 	LoginLockout    time.Duration
 
@@ -45,6 +45,12 @@ type Config struct {
 	ConversationIdleTimeout time.Duration
 	// 工作记忆装载：最近 N 条消息原文
 	WorkingMemoryMessages int
+
+	// Blogs · 图片与飞书导入
+	// BlogMediaDir：博客图片落盘目录（相对工作目录），通过 /media/blog/ 公开只读。
+	BlogMediaDir string
+	// BlogImportToken：非空时开启 POST /api/blogs/import（Bearer Token），供本机脚本把飞书文档连同图片导入博客。
+	BlogImportToken string
 }
 
 func Load() (*Config, error) {
@@ -62,19 +68,22 @@ func Load() (*Config, error) {
 		ArkModelID: os.Getenv("ARK_MODEL_ID"),
 
 		EmbeddingModel: getenv("EMBEDDING_MODEL", "doubao-embedding-large"),
-		QdrantAddr:    getenv("QDRANT_ADDR", "http://localhost:6333"),
-		TavilyAPIKey:  os.Getenv("TAVILY_API_KEY"),
+		QdrantAddr:     getenv("QDRANT_ADDR", "http://localhost:6333"),
+		TavilyAPIKey:   os.Getenv("TAVILY_API_KEY"),
 
 		AdminUsername: getenv("ADMIN_USERNAME", "admin"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 
-		SessionTTL:            7 * 24 * time.Hour,
-		SessionIDBytes:        32,
-		LoginRateLimit:        5,
-		LoginRateWindow:       time.Minute,
-		LoginLockout:          15 * time.Minute,
+		SessionTTL:              7 * 24 * time.Hour,
+		SessionIDBytes:          32,
+		LoginRateLimit:          5,
+		LoginRateWindow:         time.Minute,
+		LoginLockout:            15 * time.Minute,
 		ConversationIdleTimeout: 30 * time.Minute,
-		WorkingMemoryMessages: 40,
+		WorkingMemoryMessages:   40,
+
+		BlogMediaDir:    getenv("BLOG_MEDIA_DIR", "media/blog"),
+		BlogImportToken: os.Getenv("BLOG_IMPORT_TOKEN"),
 	}
 
 	if c.AdminPassword == "" {

@@ -24,3 +24,6 @@ coverage.txt
 # 临时文件
 tmp/
 *.tmp
+
+# 博客图片（服务器运行时写入）
+/media/

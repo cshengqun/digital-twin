@@ -107,6 +107,20 @@
 .site-button:hover { border-color: var(--site-forest-hover); background: var(--site-forest-hover); }
 .site-button.secondary { color: var(--site-ink); border-color: var(--site-line-strong); background: transparent; }
 .site-button.secondary:hover { color: var(--site-accent); border-color: #89aa96; background: var(--site-soft); }
+.site-language {
+  flex: 0 0 auto;
+  min-width: 42px;
+  min-height: 31px;
+  padding: 5px 9px;
+  border: 1px solid var(--site-line-strong);
+  border-radius: 7px;
+  color: var(--site-accent);
+  background: transparent;
+  font: 650 11px/1.4 var(--site-sans);
+  cursor: pointer;
+}
+.site-language:hover { background: var(--site-soft); }
+.site-language:focus-visible { outline: 3px solid #60987f; outline-offset: 3px; }
 .site-header a:focus-visible, .site-footer a:focus-visible, .site-button:focus-visible { outline: 3px solid #60987f; outline-offset: 3px; }
 @media (max-width: 920px) {
   .site-header-inner { flex-wrap: wrap; gap: 8px 18px; padding: 15px 0; }

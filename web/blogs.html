@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Essays and notes by csq on AI, engineering, data and long-term thinking.">
+<title>Blogs · csq</title>
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/markdown.css">
+<script defer src="/assets/site.js"></script>
+<script defer src="/assets/marked.min.js"></script>
+<script defer src="/assets/purify.min.js"></script>
+<script defer src="/assets/markdown.js"></script>
+<style>
+:root{--bg:#f4f2ec;--paper:#fffefa;--ink:#17241d;--muted:#647068;--faint:#899189;--line:#d8ddd4;--accent:#176b4d;--soft:#e2eee6;--mono:"SFMono-Regular",Consolas,monospace}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}main{flex:1}.wrap{width:min(780px,calc(100% - 64px));margin:auto}.hero{display:grid;grid-template-columns:1fr auto;gap:30px;align-items:end;padding:72px 0 42px;border-bottom:1px solid var(--line)}.eyebrow{color:var(--accent);font:650 11px var(--mono);letter-spacing:.12em}.hero h1{margin:12px 0 14px;font-size:clamp(52px,8vw,84px);line-height:1;letter-spacing:-.065em}.hero p{max-width:570px;margin:0;color:var(--muted);font-size:16px}.hero-actions{display:flex;gap:10px;flex-wrap:wrap}.blog-layout{display:block;padding:42px 0 80px}.blog-list{display:flex;flex-direction:column}.blog-card{display:block;padding:25px 0;border-top:1px solid var(--line);color:inherit;text-decoration:none}.blog-card:first-child{padding-top:0;border-top:0}.blog-card time{display:block;color:var(--faint);font:11px var(--mono);letter-spacing:.04em}.blog-card h2{margin:9px 0 8px;font-size:25px;line-height:1.25;letter-spacing:-.035em}.blog-card p{margin:0;color:var(--muted);font-size:13px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}.blog-card .read{display:inline-block;margin-top:13px;color:var(--accent);font-size:12px;font-weight:650}.blog-card:hover h2{color:var(--accent)}.empty,.status{padding:35px 0;border-top:1px solid var(--line);color:var(--muted)}.error{color:#a33f35}.article-header{padding-bottom:28px;border-bottom:1px solid var(--line)}.article-header time{display:block;margin-top:14px;color:var(--faint);font:11px var(--mono)}.edit-link{display:inline-block;margin-top:12px;color:var(--muted);font-size:12px;text-decoration:none;border-bottom:1px solid transparent}.edit-link:hover{color:var(--accent);border-bottom-color:currentColor}.article-header h1{margin:12px 0 0;font-size:clamp(36px,6vw,58px);line-height:1.12;letter-spacing:-.05em}.article-content{padding-top:30px;color:var(--ink);font-size:16px;line-height:1.95;white-space:pre-wrap;overflow-wrap:anywhere}.article-content.markdown{white-space:normal;padding-top:0}.back-link{display:inline-block;margin-bottom:24px;color:var(--accent);font-size:13px;text-decoration:none}#article{position:relative}.toc-rail{position:absolute;top:0;bottom:0;right:calc(100% + 40px);width:196px;display:none}.toc{position:sticky;top:28px;max-height:calc(100vh - 56px);overflow:auto;font-size:12.5px;line-height:1.6}.toc-title{margin:0 0 10px;color:var(--faint);font:650 10px var(--mono);letter-spacing:.12em}.toc ul{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}.toc a{display:block;margin-left:-1px;padding:5px 0 5px 12px;border-left:2px solid transparent;color:var(--muted);text-decoration:none}.toc a:hover{color:var(--ink)}.toc a.active{color:var(--accent);border-left-color:var(--accent);font-weight:650}.toc a.lv3{padding-left:26px;font-size:12px}.toc-inline{margin:0 0 24px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}.toc-inline summary{cursor:pointer;list-style:none;padding:10px 14px;color:var(--muted);font-size:13px}.toc-inline summary::-webkit-details-marker{display:none}.toc-inline summary::before{content:"▸ ";color:var(--accent)}.toc-inline[open] summary::before{content:"▾ "}.toc-inline .toc{position:static;max-height:none;padding:0 14px 12px}@media(min-width:1280px){.toc-rail{display:block}.toc-inline{display:none}}@media(max-width:720px){.wrap{width:calc(100% - 34px)}.hero{grid-template-columns:1fr;padding:52px 0 32px}.blog-layout{padding:30px 0 55px}.article-content{font-size:15px}}
+</style>
+</head>
+<body>
+<header class="site-header"><div class="site-wrap site-header-inner"><a class="site-wordmark" href="/">csq<span>.</span><small>personal website</small></a><nav class="site-nav"><a href="/">Home</a><a href="/twin/">Digital Twin</a><a href="/trends/">Trends</a><a class="active" href="/blogs/">Blogs</a><a href="/utils/">Utils</a></nav><span class="site-domain">iamcsq.top</span></div></header>
+<main><div class="wrap">
+  <section class="hero"><div><div class="eyebrow">NOTES ON BUILDING & THINKING</div><h1>Blogs</h1><p>Essays on AI, engineering, data platforms and long-term learning, written in Markdown. Published posts also teach my Digital Twin.</p></div><div class="hero-actions"><a class="site-button" href="/twin/?panel=blogs">Write a post →</a></div></section>
+  <div class="blog-layout">
+    <section id="blogRegion" aria-live="polite"><div class="status" id="status">Loading posts…</div><div class="blog-list" id="blogList" data-no-translate></div><article id="article" hidden data-no-translate><a class="back-link" href="/blogs/">← All posts</a><div class="toc-rail" id="tocRail" hidden><nav class="toc" id="toc" aria-label="Contents"></nav></div><header class="article-header"><h1 id="articleTitle"></h1><time id="articleDate"></time><a class="edit-link" id="editLink" hidden href="#" data-no-translate>✎ Edit</a></header><details class="toc-inline" id="tocInline" hidden><summary id="tocSummary">Contents</summary><nav class="toc" id="tocInlineNav" aria-label="Contents"></nav></details><div class="article-content" id="articleContent"></div></article></section>
+  </div>
+</div></main>
+<footer class="site-footer"><div class="site-wrap site-footer-inner"><span>© csq · Writing becomes knowledge and memory</span><a href="/">Back to personal home</a><span class="site-footer-meta">BLOGS × DIGITAL TWIN</span></div></footer>
+<script>
+const blogState = {posts: [], post: null, canEdit: false};
+const blogID = new URLSearchParams(location.search).get('id');
+const byID = id => document.getElementById(id);
+function blogDate(value) {
+  return new Intl.DateTimeFormat(document.documentElement.lang === 'zh-CN' ? 'zh-CN' : 'en-US', {year:'numeric', month:'short', day:'numeric'}).format(new Date(value));
+}
+function showBlogStatus(message, error = false) {
+  const status = byID('status'); status.hidden = !message; status.textContent = message || '';
+  status.classList.toggle('error', error);
+}
+function renderBlogs() {
+  const list = byID('blogList'), article = byID('article');
+  if (blogID && blogState.post) {
+    list.hidden = true; article.hidden = false;
+    byID('articleTitle').textContent = blogState.post.title;
+    byID('articleDate').textContent = blogDate(blogState.post.created_at);
+    renderArticleContent(byID('articleContent'), blogState.post);
+    // 只有登录后的本人能看到「Edit」：/api/blogs/manage 未登录返回 401。
+    const editLink = byID('editLink');
+    editLink.hidden = !blogState.canEdit;
+    editLink.href = '/twin/?panel=blogs&edit=' + encodeURIComponent(blogID);
+    showBlogStatus(''); return;
+  }
+  article.hidden = true; list.hidden = false; list.replaceChildren();
+  for (const post of blogState.posts) {
+    const link = document.createElement('a'); link.className = 'blog-card'; link.href = '/blogs/?id=' + post.id;
+    const date = document.createElement('time'); date.textContent = blogDate(post.created_at);
+    const title = document.createElement('h2'); title.textContent = post.title;
+    const excerpt = document.createElement('p'); excerpt.textContent = post.excerpt;
+    const read = document.createElement('span'); read.className = 'read'; read.dataset.en = 'Read post →'; read.dataset.zh = '阅读全文 →'; read.textContent = document.documentElement.lang === 'zh-CN' ? read.dataset.zh : read.dataset.en;
+    link.append(date, title, excerpt, read); list.appendChild(link);
+  }
+  showBlogStatus(blogState.posts.length ? '' : (document.documentElement.lang === 'zh-CN' ? '还没有发布文章。' : 'No posts have been published yet.'));
+}
+async function loadBlogs() {
+  showBlogStatus(document.documentElement.lang === 'zh-CN' ? '正在加载文章…' : 'Loading posts…');
+  try {
+    const res = await fetch(blogID ? '/api/blogs/' + encodeURIComponent(blogID) : '/api/blogs');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (blogID) {
+      blogState.post = await res.json();
+      // 顺便探测登录态，不打断正文渲染；失败（401/网络）只是不显示编辑入口。
+      fetch('/api/blogs/manage', {cache: 'no-store'}).then(r => { blogState.canEdit = r.ok; renderBlogs(); }, () => {});
+    } else blogState.posts = await res.json();
+    renderBlogs();
+  } catch (_) {
+    showBlogStatus(document.documentElement.lang === 'zh-CN' ? '文章加载失败，请稍后重试。' : 'Unable to load posts. Please try again later.', true);
+  }
+}
+window.addEventListener('csq:languagechange', renderBlogs);
+// Markdown 文章走 marked + DOMPurify 渲染（与编辑器预览同一套）；早期纯文本文章保持原样。
+function renderArticleContent(el, post) {
+  const markdown = post.format === 'markdown';
+  el.classList.toggle('markdown', markdown);
+  el.classList.toggle('markdown-body', markdown);
+  if (markdown && window.renderMarkdown) el.innerHTML = window.renderMarkdown(post.content);
+  else el.textContent = post.content;
+  buildTOC(el);
+}
+// ---------- 目录 ----------
+// 宽屏时目录固定在正文左侧留白（.toc-rail），窄屏收成文章顶部的折叠块（.toc-inline），两处共用同一份列表。
+let tocHeads = [];
+function headingSlug(text, used) {
+  let base = text.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'section';
+  let id = 's-' + base, i = 2;
+  while (used.has(id)) id = 's-' + base + '-' + i++;
+  used.add(id);
+  return id;
+}
+function buildTOC(content) {
+  const rail = byID('tocRail'), inline = byID('tocInline'), nav = byID('toc'), inlineNav = byID('tocInlineNav');
+  const zh = document.documentElement.lang === 'zh-CN';
+  byID('tocSummary').textContent = zh ? '目录' : 'Contents';
+  const heads = [...content.querySelectorAll('h1,h2,h3')].filter(h => h.textContent.trim());
+  tocHeads = [];
+  // 少于两个小节就不值得占地方。
+  if (heads.length < 2) { rail.hidden = true; inline.hidden = true; nav.replaceChildren(); inlineNav.replaceChildren(); return; }
+  const used = new Set(), ul = document.createElement('ul');
+  for (const h of heads) {
+    if (!h.id) h.id = headingSlug(h.textContent, used); else used.add(h.id);
+    const li = document.createElement('li'), a = document.createElement('a');
+    a.href = '#' + h.id; a.textContent = h.textContent.trim(); a.dataset.target = h.id;
+    if (h.tagName === 'H3') a.className = 'lv3';
+    a.onclick = event => {
+      event.preventDefault();
+      h.scrollIntoView({behavior: 'smooth', block: 'start'});
+      history.replaceState(null, '', '#' + h.id);
+    };
+    li.appendChild(a); ul.appendChild(li); tocHeads.push(h);
+  }
+  const title = document.createElement('p'); title.className = 'toc-title'; title.textContent = zh ? '目录' : 'CONTENTS';
+  nav.replaceChildren(title, ul);
+  inlineNav.replaceChildren(ul.cloneNode(true));
+  // 克隆出来的链接没有事件，补一遍（默认锚点跳转也能用，这里统一成平滑滚动）。
+  inlineNav.querySelectorAll('a').forEach(a => {
+    a.onclick = event => {
+      event.preventDefault();
+      const target = document.getElementById(a.dataset.target);
+      // 先收起折叠块再滚动：收起会让上方内容变矮，顺序反了正文会跳一截。
+      inline.open = false;
+      requestAnimationFrame(() => { if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'}); });
+      history.replaceState(null, '', '#' + a.dataset.target);
+    };
+  });
+  rail.hidden = false; inline.hidden = false;
+  markActiveTOC();
+  // 带 #锚点 打开时正文是异步渲染的，浏览器首次跳转落空，这里补一次（只做一次）。
+  if (!tocJumped) {
+    tocJumped = true;
+    const target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target) target.scrollIntoView();
+  }
+}
+let tocJumped = false;
+// 当前小节高亮：取最后一个已经滚过视口顶部 100px 的标题。
+function markActiveTOC() {
+  if (!tocHeads.length) return;
+  let active = tocHeads[0];
+  for (const h of tocHeads) { if (h.getBoundingClientRect().top <= 100) active = h; else break; }
+  document.querySelectorAll('#toc a, #tocInlineNav a').forEach(a => a.classList.toggle('active', a.dataset.target === active.id));
+}
+let tocTicking = false;
+window.addEventListener('scroll', () => {
+  if (tocTicking || !tocHeads.length) return;
+  tocTicking = true;
+  requestAnimationFrame(() => { tocTicking = false; markActiveTOC(); });
+}, {passive: true});
+// 等 defer 的渲染库就位后再拉取，保证首屏直接是渲染后的结果。
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadBlogs, {once:true});
+else loadBlogs();
+</script>
+</body>
+</html>

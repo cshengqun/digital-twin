@@ -1,11 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Echo of CSQ · 数字分身</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
 <link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/markdown.css">
+<script defer src="/assets/site.js"></script>
+<script defer src="/assets/marked.min.js"></script>
+<script defer src="/assets/purify.min.js"></script>
+<script defer src="/assets/markdown.js"></script>
 <style>
 :root{--bg:#F4F2EC;--paper:#FFFEFA;--ink:#17241D;--ink2:#647068;--ink3:#899189;--line:#D8DDD4;--accent:#176B4D;--accent-deep:#10563D;--accent-soft:#E2EEE6;--user-bubble:#173B30;--user-bubble-deep:#214B3D;--trace-bg:#F8F7F2;--ok:#176B4D;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -97,6 +102,16 @@ textarea:focus{border-color:var(--accent);}
 .journal-form .note{font-size:12px;color:var(--ink3);}
 .journal-form .jstatus{font-size:12.5px;color:var(--ok);min-height:16px;}
 .profile{padding-top:14px;}
+/* 博客编辑器：Markdown 左写右预览 */
+#blogsMask .panel{max-width:980px;}
+.blog-editor{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:340px;}
+.blog-editor textarea{width:100%;min-height:340px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:13px/1.65 var(--mono,monospace);resize:vertical;outline:none;}
+.blog-editor textarea:focus{border-color:var(--accent);}
+.blog-preview{min-height:340px;max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--paper);}
+.blog-preview.is-plain{white-space:pre-wrap;font-size:14px;line-height:1.7;}
+.blog-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--ink3);}
+.blog-tools .btn{padding:5px 10px;font-size:12px;}
+.blog-select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.4;font-family:inherit;color:var(--ink2);background:var(--paper);outline:none;}
 .profile .ptitle{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:8px;display:flex;align-items:center;gap:8px;}
 .profile .ptitle .mini{padding:4px 10px;font-size:12px;}
 .pitem{display:flex;gap:8px;padding:4px 0;font-size:13.5px;line-height:1.6;}
@@ -125,13 +140,14 @@ dialog.panel::backdrop{background:rgba(24,32,46,.38);}
 </style>
 </head>
 <body>
-<header class="site-header"><div class="site-wrap site-header-inner"><a class="site-wordmark" href="/" aria-label="csq 个人网站首页">csq<span>.</span><small>personal website</small></a><nav class="site-nav" aria-label="全站主导航"><a href="/">首页</a><a class="active" href="/twin/" aria-current="page">Digital Twin</a><a href="/trends/">Trends</a><a href="/tools/">WeUtil</a></nav><span class="site-domain">iamcsq.top</span></div></header>
+<header class="site-header"><div class="site-wrap site-header-inner"><a class="site-wordmark" href="/" aria-label="csq 个人网站首页">csq<span>.</span><small>personal website</small></a><nav class="site-nav" aria-label="全站主导航"><a href="/">首页</a><a class="active" href="/twin/" aria-current="page">Digital Twin</a><a href="/trends/">Trends</a><a href="/blogs/">Blogs</a><a href="/utils/">Utils</a></nav><span class="site-domain">iamcsq.top</span></div></header>
 <header class="workspace-header">
   <a class="brand" href="/" aria-label="返回csq个人主页">Echo of CSQ<span class="brandsub">我记忆与风格的回声</span></a>
   <span class="sp"></span>
-  <button class="btn" id="kbBtn">知识库</button>
-  <button class="btn" id="journalBtn">日记</button>
-  <button class="btn" id="memoryBtn">记忆</button>
+  <button class="btn" id="kbBtn">Knowledge</button>
+  <button class="btn" id="blogsBtn">Blogs</button>
+  <button class="btn" id="profileBtn">Profile</button>
+  <button class="btn" id="memoryBtn">Memories</button>
   <button class="btn" id="newBtn">新对话</button>
   <button class="btn ghost" id="logoutBtn">登出</button>
 </header>
@@ -174,24 +190,34 @@ dialog.panel::backdrop{background:rgba(24,32,46,.38);}
   </div>
 </div>
 
-<!-- 日记弹层 -->
-<div class="mask" id="journalMask" style="display:none;">
+<!-- Profile -->
+<div class="mask" id="profileMask" style="display:none;">
   <div class="panel">
-    <div class="head"><span class="t">日记与画像</span><button class="close" id="journalClose">&times;</button></div>
+    <div class="head"><span class="t">My profile</span><button class="close" id="profileClose" aria-label="Close">&times;</button></div>
     <div class="body">
-      <div class="journal-form">
-        <textarea id="journalText" placeholder="写写今天做了什么、想了什么、怎么决策的…&#10;提交后会自动抽取成记忆（事实/情景/方法）"></textarea>
-        <div class="row">
-          <button class="mini" id="journalSubmit" style="margin-left:auto;">提交日记</button>
-        </div>
-        <div class="jstatus" id="journalStatus" role="status"></div>
-        <div class="note">每次提交都会抽取记忆；画像每天凌晨 02:30 自动重建。</div>
-      </div>
-      <div class="klist" id="journalJobs" aria-label="近期日记处理记录"></div>
+      <div class="jstatus" id="profileStatus" role="status"></div>
       <div class="profile">
-        <div class="ptitle">我的画像 <button type="button" class="cite" id="profileRebuild">重建画像</button></div>
+        <div class="ptitle">Learned from memories <button type="button" class="cite" id="profileRebuild">Rebuild profile</button></div>
         <div id="profileBody"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Blog publishing and learning -->
+<div class="mask" id="blogsMask" style="display:none;">
+  <div class="panel">
+    <div class="head"><span class="t">Blogs</span><button class="close" id="blogsClose" aria-label="Close">&times;</button></div>
+    <div class="body">
+      <form class="journal-form" id="blogForm">
+        <input type="text" id="blogTitle" maxlength="160" required placeholder="Post title" style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;">
+        <div class="blog-tools"><button type="button" class="btn ghost" id="blogImportButton">Import .md</button><button type="button" class="btn ghost" id="blogImageButton">Insert image</button><select id="blogTemplate" class="blog-select" aria-label="Insert a writing template"><option value="">Insert template…</option><option value="design">技术方案 · Tech design</option><option value="analysis">分析报告 · Analysis</option><option value="notes">读书笔记 · Reading notes</option><option value="essay">随笔 · Essay</option></select><button type="button" class="btn ghost" id="blogNewButton" hidden>New post</button><span>Markdown supported · drop or paste images into the editor to upload</span><input type="file" id="blogImportInput" accept=".md,.markdown,.txt" hidden><input type="file" id="blogImageInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden></div>
+        <div class="blog-editor"><textarea id="blogContent" required placeholder="Write in Markdown…"></textarea><div class="blog-preview markdown-body" id="blogPreview" data-no-translate aria-label="Markdown preview"></div></div>
+        <div class="row"><a class="cite" href="/blogs/" target="_blank" rel="noopener">View public posts</a><a class="cite" id="blogViewLink" href="#" target="_blank" rel="noopener" hidden>View this post ↗</a><button class="mini" id="blogSubmit" type="submit" style="margin-left:auto;">Publish post</button></div>
+        <div class="jstatus" id="blogStatus" role="status"></div>
+        <div class="note">Each post is public and feeds both your Digital Twin knowledge base and memories. Editing a post re-indexes the knowledge base with the new text.</div>
+      </form>
+      <div class="klist" id="blogJobs" aria-label="Recent blog learning jobs"></div>
     </div>
   </div>
 </div>
@@ -551,81 +577,32 @@ function retryButton(url, refresh) {
   return button;
 }
 
-// ---------- 日记与画像 ----------
-let journalTimer = null;
-function journalOpen() {
-  $('journalMask').style.display = 'flex';
-  $('journalStatus').textContent = '';
+// ---------- Profile ----------
+function setProfileStatus(text) { $('profileStatus').textContent = text; }
+function profileOpen() {
+  $('profileMask').style.display = 'flex';
+  setProfileStatus('');
   loadProfile();
-  refreshJournalJobs();
-  if (journalTimer) clearInterval(journalTimer);
-  journalTimer = setInterval(refreshJournalJobs, 3000);
 }
-function journalClose() {
-  $('journalMask').style.display = 'none';
-  clearInterval(journalTimer);
-  journalTimer = null;
-}
-$('journalBtn').onclick = journalOpen;
-$('journalClose').onclick = journalClose;
-$('journalMask').onclick = e => { if (e.target === $('journalMask')) journalClose(); };
-
-function setJStatus(t) { $('journalStatus').textContent = t; }
-async function refreshJournalJobs() {
-  try {
-    const res = await fetch('/api/journal');
-    if (res.status === 401) { location.href = '/login'; return; }
-    if (!res.ok) return;
-    const jobs = await res.json();
-    const list = $('journalJobs');
-    list.replaceChildren();
-    for (const job of jobs) {
-      const item = document.createElement('div');
-      item.className = 'kitem';
-      const title = document.createElement('span');
-      title.className = 't';
-      title.textContent = new Date(job.created_at).toLocaleString();
-      const state = document.createElement('span');
-      state.className = 'st ' + job.status;
-      state.textContent = {pending:'排队中', digesting:'消化中…', ready:'已完成', failed:'失败'}[job.status] || job.status;
-      if (job.error_msg) state.title = job.error_msg;
-      item.append(title, state);
-      if (job.status === 'failed') {
-        item.appendChild(retryButton('/api/journal/' + job.id + '/retry', refreshJournalJobs));
-      }
-      list.appendChild(item);
-    }
-  } catch {}
-}
-$('journalSubmit').onclick = async () => {
-  const t = $('journalText').value.trim();
-  if (!t) return;
-  const btn = $('journalSubmit'); btn.disabled = true;
-  try {
-    const res = await fetch('/api/journal', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({content: t})
-    });
-    if (res.status === 401) { location.href = '/login'; return; }
-    if (!res.ok) { const b = await res.text(); setJStatus('提交失败：' + (b || res.status)); return; }
-    $('journalText').value = '';
-    setJStatus('日记已提交');
-    refreshJournalJobs();
-  } finally { btn.disabled = false; }
-};
-$('profileRebuild') && ($('profileRebuild').onclick = async () => {
-  const btn = $('profileRebuild'); btn.disabled = true;
-  setJStatus('正在重建画像…');
+function profileClose() { $('profileMask').style.display = 'none'; }
+$('profileBtn').onclick = profileOpen;
+$('profileClose').onclick = profileClose;
+$('profileMask').onclick = e => { if (e.target === $('profileMask')) profileClose(); };
+$('profileRebuild').onclick = async () => {
+  const btn = $('profileRebuild');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  setProfileStatus('Rebuilding profile…');
   try {
     const res = await fetch('/api/agent/profile/rebuild', {method: 'POST'});
     if (res.status === 401) { location.href = '/login'; return; }
-    if (!res.ok) { const b = await res.text(); setJStatus('重建失败：' + b); return; }
-    const data = await res.json();
-    renderProfile(data);
-    setJStatus('画像已重建');
+    if (!res.ok) { const b = await res.text(); setProfileStatus('Rebuild failed: ' + b); return; }
+    renderProfile(await res.json());
+    setProfileStatus('Profile rebuilt');
+  } catch (_) {
+    setProfileStatus('Network error. Please try again.');
   } finally { btn.disabled = false; }
-});
+};
 function renderProfile(data) {
   const p = data.profile || {}, s = data.state || {};
   const body = $('profileBody');
@@ -642,23 +619,18 @@ function renderProfile(data) {
     ['知识版图', arr(p.knowledge_map)]
   ];
   let html = '';
-  rows.forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v"></span></div>'; });
+  rows.forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v" data-no-translate></span></div>'; });
   if (hasS) {
     html += '<div class="ptitle" style="margin-top:10px;">近期状态</div>';
     [['当前关注', arr(s.focus)], ['进行中', arr(s.active_projects)], ['近期情绪', arr(s.recent_mood)], ['近期变化', arr(s.recent_updates)]]
-      .forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v"></span></div>'; });
+      .forEach(([k, v]) => { if (v) html += '<div class="pitem"><span class="k">' + k + '</span><span class="v" data-no-translate></span></div>'; });
   }
   body.innerHTML = html;
-  // 文本节点全部用 textContent 写入（防注入）
   body.querySelectorAll('.pitem').forEach(el => {
-    const k = el.querySelector('.k');
-    const v = el.querySelector('.v');
-    const key = k.textContent;
-    const row = [['身份', arr(p.identity)], ['性格', arr(p.personality)], ['语气', arr(p.tone)],
-      ['价值观', arr(p.values)], ['口头禅', arr(p.catchphrases)], ['禁忌', arr(p.taboos)],
-      ['知识版图', arr(p.knowledge_map)], ['当前关注', arr(s.focus)], ['进行中', arr(s.active_projects)],
+    const key = el.querySelector('.k').textContent;
+    const row = [...rows, ['当前关注', arr(s.focus)], ['进行中', arr(s.active_projects)],
       ['近期情绪', arr(s.recent_mood)], ['近期变化', arr(s.recent_updates)]].find(r => r[0] === key);
-    v.textContent = row ? row[1] : '';
+    el.querySelector('.v').textContent = row ? row[1] : '';
   });
 }
 async function loadProfile() {
@@ -667,8 +639,330 @@ async function loadProfile() {
     if (res.status === 401) { location.href = '/login'; return; }
     if (!res.ok) return;
     renderProfile(await res.json());
-  } catch {}
+  } catch (_) { setProfileStatus('Network error. Please try again.'); }
 }
+
+// ---------- Blog publishing + learning jobs ----------
+let blogTimer = null;
+let blogPublishing = false;
+function blogOpen() {
+  $('blogsMask').style.display = 'flex';
+  setBlogStatus('');
+  refreshBlogJobs();
+  if (blogTimer) clearInterval(blogTimer);
+  blogTimer = setInterval(refreshBlogJobs, 3000);
+}
+function blogClose() {
+  $('blogsMask').style.display = 'none';
+  clearInterval(blogTimer);
+  blogTimer = null;
+}
+$('blogsBtn').onclick = blogOpen;
+$('blogsClose').onclick = blogClose;
+$('blogsMask').onclick = e => { if (e.target === $('blogsMask')) blogClose(); };
+function setBlogStatus(text) { $('blogStatus').textContent = text; }
+async function refreshBlogJobs() {
+  try {
+    const res = await fetch('/api/blogs/manage');
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) return;
+    const jobs = await res.json();
+    const list = $('blogJobs');
+    list.replaceChildren();
+    for (const job of jobs || []) {
+      const item = document.createElement('div'); item.className = 'kitem';
+      const title = document.createElement('span'); title.className = 't'; title.dataset.noTranslate = '';
+      title.textContent = job.title; title.title = new Date(job.created_at).toLocaleString();
+      const state = document.createElement('span'); state.className = 'st ' + job.status;
+      const statusNames = {pending:'Queued', digesting:'Learning…', indexing:'Indexing…', ready:'Ready', failed:'Failed'};
+      state.textContent = 'Memory: ' + (statusNames[job.status] || job.status) + ' · Knowledge: ' + (statusNames[job.knowledge_status] || job.knowledge_status);
+      if (job.error_msg) state.title = job.error_msg;
+      const view = document.createElement('a'); view.className = 'cite'; view.href = '/blogs/?id=' + job.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'View';
+      const edit = document.createElement('button'); edit.className = 'mini'; edit.textContent = 'Edit'; edit.disabled = job.status === 'digesting';
+      edit.title = job.status === 'digesting' ? 'Learning in progress, try again shortly' : 'Edit this post';
+      edit.onclick = () => blogEdit(job.id);
+      item.append(title, state, view, edit);
+      if (job.status === 'failed') item.appendChild(retryButton('/api/blogs/' + job.id + '/retry', refreshBlogJobs));
+      if (job.knowledge_status === 'failed') item.appendChild(retryButton('/api/knowledge/' + job.knowledge_id + '/retry', refreshBlogJobs));
+      list.appendChild(item);
+    }
+  } catch (_) { /* Keep the last successful job state while polling. */ }
+}
+// ---------- 编辑已有文章 ----------
+// blogEditingID 非空时提交走 PUT /api/blogs/{id}，保存后服务端会用新正文重建知识库索引。
+let blogEditingID = null;
+function blogSetMode(id) {
+  blogEditingID = id;
+  $('blogSubmit').textContent = id ? 'Save changes' : 'Publish post';
+  $('blogNewButton').hidden = !id;
+  $('blogViewLink').hidden = !id;
+  if (id) $('blogViewLink').href = '/blogs/?id=' + id;
+}
+function blogReset() {
+  blogSetMode(null);
+  $('blogTitle').value = ''; $('blogContent').value = '';
+  blogRenderPreview(); setBlogStatus(''); $('blogTitle').focus();
+}
+async function blogEdit(id) {
+  try {
+    const res = await fetch('/api/blogs/' + id, {cache: 'no-store'});
+    if (!res.ok) { setBlogStatus('Unable to load post ' + id + ' (HTTP ' + res.status + ')'); return; }
+    const post = await res.json();
+    blogSetMode(id);
+    $('blogTitle').value = post.title || '';
+    // 早期纯文本文章没有 Markdown 标记，按原文放进编辑器、之后以 Markdown 保存，显示不变。
+    $('blogContent').value = post.content || '';
+    blogRenderPreview();
+    setBlogStatus('Editing post #' + id + '. Save to publish the changes and re-index the knowledge base.');
+    $('blogTitle').scrollIntoView({behavior: 'smooth', block: 'center'});
+  } catch (_) { setBlogStatus('Network error while loading the post.'); }
+}
+$('blogNewButton').onclick = blogReset;
+$('blogForm').onsubmit = async event => {
+  event.preventDefault();
+  if (blogPublishing) return;
+  const title = $('blogTitle').value.trim(), content = $('blogContent').value.trim();
+  if (!title || !content) { setBlogStatus('Title and content are required'); return; }
+  const editing = blogEditingID;
+  blogPublishing = true;
+  const btn = $('blogSubmit'); btn.disabled = true; btn.textContent = editing ? 'Saving…' : 'Publishing…';
+  try {
+    const res = await fetch(editing ? '/api/blogs/' + editing : '/api/blogs', {method: editing ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title, content, format:'markdown'})});
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) { const b = await res.text(); setBlogStatus((editing ? 'Save failed: ' : 'Publish failed: ') + (b || res.status)); return; }
+    if (editing) {
+      setBlogStatus('Post #' + editing + ' saved. The knowledge base is being re-indexed with the new text.');
+    } else {
+      blogSetMode(null);
+      $('blogTitle').value = ''; $('blogContent').value = ''; blogRenderPreview();
+      setBlogStatus('Post published. Learning and knowledge indexing are underway.');
+    }
+    await refreshBlogJobs();
+  } catch (_) {
+    setBlogStatus('Network error. Please try again.');
+  } finally {
+    blogPublishing = false; btn.disabled = false; btn.textContent = blogEditingID ? 'Save changes' : 'Publish post';
+  }
+};
+// ---------- 写作模板 ----------
+// 模板就是带占位说明的 Markdown 骨架，顺带示范提示框（> [!NOTE]）和表格的写法。
+const BLOG_TEMPLATES = {
+  design: [
+    '> [!NOTE] 一句话结论',
+    '> 用一句话说清这篇方案解决什么问题、为什么选这条路。',
+    '',
+    '## 背景',
+    '',
+    '- **现状**：',
+    '- **问题**：',
+    '- **约束**：时间、人力、成本、合规等硬限制。',
+    '',
+    '## 目标与非目标',
+    '',
+    '| 类型 | 内容 |',
+    '| --- | --- |',
+    '| 目标 | 本期必须达成的 2–3 件事 |',
+    '| 非目标 | 明确不做的事，避免范围蔓延 |',
+    '',
+    '## 方案总览',
+    '',
+    '先给一张整体结构（文字描述或图片均可），再拆到模块。',
+    '',
+    '### 模块一：',
+    '',
+    '- **职责**：',
+    '- **关键接口**：',
+    '- **依赖**：',
+    '',
+    '### 模块二：',
+    '',
+    '## 关键取舍',
+    '',
+    '| 选项 | 好处 | 代价 | 结论 |',
+    '| --- | --- | --- | --- |',
+    '| A |  |  |  |',
+    '| B |  |  |  |',
+    '',
+    '> [!TIP] 写作提示',
+    '> 取舍要写“为什么不选另一条”，只写优点的表格没有信息量。',
+    '',
+    '## 风险与应对',
+    '',
+    '1. **风险**： → **应对**：',
+    '',
+    '## 后续计划',
+    '',
+    '- [ ] 第一阶段：',
+    '- [ ] 第二阶段：',
+  ].join('\n'),
+  analysis: [
+    '> [!IMPORTANT] 核心结论',
+    '> 先给结论：怎么看、怎么判断、建议怎么做。细节放在后面。',
+    '',
+    '## 背景',
+    '',
+    '为什么现在要看这个问题：触发事件、时间点、与自己的关系。',
+    '',
+    '## 分析框架',
+    '',
+    '用一句话说明按什么维度拆解，例如：需求 → 供给 → 格局 → 估值 → 催化。',
+    '',
+    '## 逐项拆解',
+    '',
+    '### 1. 维度一',
+    '',
+    '**判断**：',
+    '',
+    '**依据**：',
+    '',
+    '### 2. 维度二',
+    '',
+    '## 数据与依据',
+    '',
+    '| 指标 | 数值 | 来源 / 日期 |',
+    '| --- | --- | --- |',
+    '|  |  |  |',
+    '',
+    '## 反方观点',
+    '',
+    '最有力的一条反对意见是什么，我为什么不采纳（或什么情况下会改判）。',
+    '',
+    '> [!WARNING] 不确定性',
+    '> 列出会让结论失效的关键假设。',
+    '',
+    '## 建议动作',
+    '',
+    '- **短期**：',
+    '- **中期**：',
+    '- **观察点**：出现什么信号需要重新评估。',
+  ].join('\n'),
+  notes: [
+    '> [!NOTE] 一句话总结',
+    '> 这本书 / 这篇文章讲了什么，用一句自己的话说出来。',
+    '',
+    '## 基本信息',
+    '',
+    '- **书名 / 作者**：',
+    '- **阅读时间**：',
+    '- **推荐指数**：★★★★☆',
+    '',
+    '## 核心观点',
+    '',
+    '1. ',
+    '2. ',
+    '3. ',
+    '',
+    '## 摘录与感想',
+    '',
+    '> 原文摘录',
+    '',
+    '我的想法：',
+    '',
+    '> [!TIP] 摘录技巧',
+    '> 引用块放原文，正文写自己的理解，二者不要混在一起。',
+    '',
+    '## 和我已知的东西怎么连接',
+    '',
+    '- 联系到哪本书 / 哪段经历 / 哪个工作问题：',
+    '',
+    '## 行动',
+    '',
+    '- [ ] ',
+  ].join('\n'),
+  essay: [
+    '从一个具体的场景或问题写起，不要先下结论。',
+    '',
+    '## 第一部分小标题',
+    '',
+    '正文。',
+    '',
+    '## 第二部分小标题',
+    '',
+    '正文。',
+    '',
+    '> [!NOTE] 题外话',
+    '> 不适合放进主线、又舍不得删的内容，放在这里。',
+    '',
+    '## 收尾',
+    '',
+    '回到开头的场景，给出一个可以带走的想法。',
+  ].join('\n'),
+};
+$('blogTemplate').onchange = event => {
+  const text = BLOG_TEMPLATES[event.target.value];
+  event.target.value = '';
+  if (!text) return;
+  // 编辑器已有内容时插到光标处；为空时直接铺开模板。
+  if (blogEditor.value.trim()) blogInsert('\n\n' + text + '\n');
+  else { blogEditor.value = text + '\n'; blogEditor.focus(); blogRenderPreview(); }
+  if (!$('blogTitle').value.trim()) $('blogTitle').focus();
+};
+// Markdown 预览与图片：渲染与公开页共用 /assets/markdown.js，保证所见即所得。
+const blogEditor = $('blogContent'), blogPreview = $('blogPreview');
+function blogRenderPreview() {
+  if (!blogEditor.value.trim()) {
+    blogPreview.replaceChildren(); blogPreview.textContent = document.documentElement.lang === 'zh-CN' ? '预览' : 'Preview';
+    blogPreview.classList.add('is-plain'); return;
+  }
+  blogPreview.classList.remove('is-plain');
+  blogPreview.innerHTML = window.renderMarkdown ? window.renderMarkdown(blogEditor.value) : blogEditor.value;
+}
+blogEditor.addEventListener('input', blogRenderPreview);
+// 等 defer 的 marked / DOMPurify 就位后再出预览。
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', blogRenderPreview, {once:true});
+else blogRenderPreview();
+function blogInsert(text) {
+  const start = blogEditor.selectionStart ?? blogEditor.value.length, end = blogEditor.selectionEnd ?? start;
+  blogEditor.value = blogEditor.value.slice(0, start) + text + blogEditor.value.slice(end);
+  blogEditor.focus(); blogEditor.selectionStart = blogEditor.selectionEnd = start + text.length;
+  blogRenderPreview();
+}
+async function blogUploadImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  setBlogStatus('Uploading ' + file.name + '…');
+  const body = new FormData(); body.append('file', file);
+  try {
+    const res = await fetch('/api/blogs/upload', {method:'POST', body});
+    if (res.status === 401) { location.href = '/login'; return; }
+    if (!res.ok) { setBlogStatus('Image upload failed: ' + (await res.text())); return; }
+    const data = await res.json();
+    const alt = (file.name || 'image').replace(/[\[\]]/g, '');
+    blogInsert('\n![' + alt + '](' + data.url + ')\n');
+    setBlogStatus('Image uploaded.');
+  } catch (_) { setBlogStatus('Network error. Please try again.'); }
+}
+blogEditor.addEventListener('paste', event => {
+  const file = Array.from(event.clipboardData?.files || []).find(f => f.type.startsWith('image/'));
+  if (!file) return; event.preventDefault(); blogUploadImage(file);
+});
+blogEditor.addEventListener('dragover', event => event.preventDefault());
+blogEditor.addEventListener('drop', event => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault(); for (const file of event.dataTransfer.files) blogUploadImage(file);
+});
+$('blogImageButton').onclick = () => $('blogImageInput').click();
+$('blogImageInput').onchange = event => { for (const file of event.target.files) blogUploadImage(file); event.target.value = ''; };
+$('blogImportButton').onclick = () => $('blogImportInput').click();
+$('blogImportInput').onchange = async event => {
+  const file = event.target.files[0]; event.target.value = ''; if (!file) return;
+  const text = (await file.text()).replace(/^\uFEFF/, '').trim();
+  if (!text) { setBlogStatus('The file is empty.'); return; }
+  // 标题为空时，用正文的一级标题当标题并从正文里去掉。
+  const heading = text.match(/^#\s+(.+?)\s*(?:\n|$)/);
+  if (heading && !$('blogTitle').value.trim()) {
+    $('blogTitle').value = heading[1].trim();
+    blogEditor.value = text.slice(heading[0].length).trim();
+  } else blogEditor.value = text;
+  blogRenderPreview(); setBlogStatus('Imported ' + file.name + '. Review the preview, then publish.');
+};
+const blogParams = new URLSearchParams(location.search);
+if (blogParams.get('panel') === 'blogs') {
+  blogOpen();
+  // 文章页的「Edit」链接会带上 edit=<id>，打开面板后直接载入该文章。
+  const editID = blogParams.get('edit');
+  if (editID && /^\d+$/.test(editID)) blogEdit(Number(editID));
+}
+
 
 // ---------- 引用与记忆 ----------
 let memoryBefore = 0;

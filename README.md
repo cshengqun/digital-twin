@@ -52,6 +52,8 @@ go run ./cmd/server
 
 打开 `http://localhost:8080` 查看个人主页；进入 `http://localhost:8080/twin/` → 登录 → 对话。数字分身页右上角「知识库」支持上传 TXT / Markdown / HTML 或导入网页。
 
+**Blogs**：对话页「Blogs」面板用 Markdown 写作，左侧编辑、右侧实时预览，图片拖拽/粘贴即上传；发布后文章公开在 `/blogs/`，同时进入记忆抽取与知识索引。飞书文档导出的 Markdown 和图片可通过 `deploy/blog-import.sh` 一键导入，见 `deploy/README.md` 第八节。
+
 ## 已实现
 
 ### Phase 0

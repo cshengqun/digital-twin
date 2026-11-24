@@ -76,3 +76,40 @@ docker compose -f /opt/twin/docker-compose.yml ps  # 三件套健康
 - 服务器只对公网开放 22/80/443；PG/Redis/Qdrant 只绑定 127.0.0.1（docker-compose 已配）
 - 登录密码走 argon2id + 登录限流；个人主页公开，数字分身页面与业务 API 均需登录
 - 定期 `pg_dump` 备份到本机或对象存储
+
+## 八、博客：Markdown、图片与飞书导入
+
+- 文章以 **Markdown** 存储和渲染（marked + DOMPurify，库已内置于 `web/assets/`，不走 CDN）；早期的纯文本文章按原样显示。
+- 编辑器（`/twin/` → Blogs）左侧写、右侧实时预览；图片可拖拽或粘贴进编辑框自动上传，也可「Import .md」导入本地 Markdown 文件。
+- 图片落盘在 `BLOG_MEDIA_DIR`（默认 `media/blog`，即 `/opt/twin/media/blog`），通过 `/media/blog/<目录>/<文件名>` 公开只读，只放行 PNG/JPEG/GIF/WebP。部署脚本不会动这个目录。
+
+**从飞书导入**（在本机执行，正文为飞书导出的 Markdown，图片一并传入）：
+
+```bash
+# 服务器 .env 里设置 BLOG_IMPORT_TOKEN（openssl rand -hex 24 生成），重启服务生效
+BLOG_IMPORT_TOKEN=<token> bash deploy/blog-import.sh "文章标题" doc.md images/*.png
+```
+
+脚本调用 `POST /api/blogs/import`（Bearer Token 鉴权，未配置 token 时接口返回 404）。正文中以图片文件名结尾的地址（如 `![](images/a.png)`）会被改写为站内 URL。发布后的学习和知识索引与网页发布完全一致。
+
+**修改已发布的文章**（博客没有删除接口，改内容用覆盖更新，不要再发一篇）：
+
+```bash
+# 覆盖更新第 5 篇（内容、图片处理与新发一致；旧图片文件不会被清理）
+bash deploy/blog-import.sh -u 5 "文章标题" doc.md
+```
+
+- 网页端：`/blogs/?id=N` 登录后标题下有「Edit」，或 `/twin/` → Blogs 列表里每篇都有「Edit」，保存走 `PUT /api/blogs/{id}`。
+- 保存后知识库会按新正文**重新分块并替换旧向量**（分身回答用的是新内容）；日志侧的记忆**不会重抽**（memories 按 source_ref 追加写入，重跑会重复）。
+- 后台正在学习/索引中的文章会返回 409，稍后再保存即可。
+
+**写作模板与正文样式**：编辑器工具栏的「Insert template…」提供技术方案 / 分析报告 / 读书笔记 / 随笔四种骨架（Markdown，可自由增删）。正文支持 GitHub 风格提示框：
+
+```markdown
+> [!NOTE] 可选标题
+> 内容。类型：NOTE / TIP / IMPORTANT / WARNING / CAUTION
+```
+
+**目录导航**：文章页自动从正文的 h1/h2/h3 生成目录（少于两个小节则不显示）。窗口 ≥1280px 时固定在正文左侧留白并随滚动高亮当前小节，更窄时收成标题下方的「目录」折叠块；锚点形如 `#s-<标题>`，可直接分享带锚点的链接。
+
+页面与 `/assets/` 均下发 `Cache-Control: no-cache`（每次条件请求，未变化返回 304），改前端文件后 scp 覆盖即可生效，无需让访客强刷。
