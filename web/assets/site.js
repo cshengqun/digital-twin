@@ -11,6 +11,9 @@
     ['写文章','Write a post'],['文章','Posts'],['正在加载文章…','Loading posts…'],['还没有发布文章。','No posts have been published yet.'],['文章加载失败，请稍后重试。','Unable to load posts. Please try again later.'],['阅读全文 →','Read post →'],['全部文章','All posts'],
     ['写作与思考','NOTES ON BUILDING & THINKING'],['关于 AI、工程、数据平台与长期学习的文章。发布的文章也会用于训练我的 Digital Twin。','Essays on AI, engineering, data platforms and long-term learning. Published posts also teach my Digital Twin.'],['关于 AI、工程、数据平台与长期学习的文章，用 Markdown 写作。发布的文章也会用于训练我的 Digital Twin。','Essays on AI, engineering, data platforms and long-term learning, written in Markdown. Published posts also teach my Digital Twin.'],['编辑','Edit'],['目录','Contents'],['博客 × 数字分身','BLOGS × DIGITAL TWIN'],['新文章','New post'],['插入模板…','Insert template…'],['查看本文 ↗','View this post ↗'],['查看','View'],['导入 .md','Import .md'],['插入图片','Insert image'],['用 Markdown 写作…','Write in Markdown…'],['支持 Markdown · 拖拽或粘贴图片到编辑框即可上传','Markdown supported · drop or paste images into the editor to upload'],['每篇文章都是公开的，会同时进入 Digital Twin 的知识库与记忆；编辑后会用新正文重建知识库索引。','Each post is public and feeds both your Digital Twin knowledge base and memories. Editing a post re-indexes the knowledge base with the new text.'],['写作沉淀为记忆','Writing becomes memory'],['写作沉淀为知识','Writing that becomes knowledge'],['每篇文章都会进入知识库并抽取为记忆，帮助 Echo of CSQ 理解我持续变化的想法。','Every published post is indexed into the knowledge base and distilled into memories, helping Echo of CSQ understand my evolving ideas.'],['与我的分身对话 →','Talk to my twin →'],['公开文章会同时进入知识库与记忆。','Public writing that becomes knowledge and memory'],['写作、知识库与记忆','Writing, knowledge and memory'],['文章与技术笔记会同时进入 Digital Twin 的知识库和长期记忆。','Essays and technical notes that teach my Digital Twin through knowledge indexing and memory extraction.'],['阅读 Blogs →','Read Blogs →'],['写作 → 学习','WRITE → LEARN'],
     ['从记忆中学习','Learned from memories'],['每篇公开文章都会同时更新 Digital Twin 的知识库与记忆。','Each post is public and feeds both your Digital Twin knowledge base and memories.'],['查看公开文章','View public posts'],['发布失败','Publish failed'],['重建失败','Rebuild failed'],['排队中','Queued'],['消化中…','Learning…'],['索引中…','Indexing…'],['失败','Failed'],['记忆学习','Memory'],['近期情绪','Recent mood'],['公开文章','Public posts'],['写作','WRITE'],['学习','LEARN'],
+    // 站点装饰性标签：全大写的小字标题、模块编号与页脚。
+    ['个人网站','personal website'],['CSQ — AI 全栈工程师','CSQ — AI FULL-STACK ENGINEER'],['四个模块，同一个首页','FOUR MODULES, ONE HOME'],['精选项目','SELECTED PROJECTS'],['个人知识 × 记忆','PERSONAL KNOWLEDGE × MEMORY'],['关注','FOCUS'],
+    ['01 / 数字分身','01 / DIGITAL TWIN'],['02 / 趋势','02 / TRENDS'],['03 / 博客','03 / BLOGS'],['04 / 工具','04 / UTILS'],['03 / 开发者工具','03 / DEVELOPER UTILITIES'],['© csq · 开发者工具','© csq · Utils Developer Utilities'],['长期趋势','LONG-TERM TRENDS'],
     ['在浏览器中对比','Compared in your browser'],['A · 修改前','A · Before'],['B · 修改后','B · After'],['使用格式化输入','Use formatted input'],['已格式化','Formatted'],['在每个输入框粘贴 JSON 响应，然后选择「对比」。','Paste a JSON response in each input, then select Compare.'],['准备好后即可对比','Ready to compare'],['写作沉淀为知识与记忆','Writing becomes knowledge and memory'],['请求头','Headers'],['认证方式','Auth'],['导入 cURL 命令','Import cURL command'],['请求历史记录','Request history'],['发送','Send'],['移除','Remove'],['添加请求头','Add Header'],['值','Value'],['键','Key']
   ];
   const maps = {en: new Map(), zh: new Map()};
@@ -70,10 +73,10 @@
   }
   const items = [
     {path:'/', match:p => p === '/', en:'Home', zh:'首页'},
-    {path:'/twin/', match:p => p.startsWith('/twin'), en:'Digital Twin', zh:'Digital Twin'},
-    {path:'/trends', match:p => p.startsWith('/trends'), en:'Trends', zh:'Trends'},
-    {path:'/blogs/', match:p => p.startsWith('/blogs'), en:'Blogs', zh:'Blogs'},
-    {path:'/utils/', match:p => p.startsWith('/utils') || p.startsWith('/tools'), en:'Utils', zh:'Utils'}
+    {path:'/twin/', match:p => p.startsWith('/twin'), en:'Digital Twin', zh:'数字分身'},
+    {path:'/trends', match:p => p.startsWith('/trends'), en:'Trends', zh:'趋势'},
+    {path:'/blogs/', match:p => p.startsWith('/blogs'), en:'Blogs', zh:'博客'},
+    {path:'/utils/', match:p => p.startsWith('/utils') || p.startsWith('/tools'), en:'Utils', zh:'工具'}
   ];
   function renderNav() {
     const nav = document.querySelector('.site-nav');
