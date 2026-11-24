@@ -214,7 +214,7 @@ dialog.panel::backdrop{background:rgba(24,32,46,.38);}
         <div class="blog-tools"><button type="button" class="btn ghost" id="blogImportButton">Import .md</button><button type="button" class="btn ghost" id="blogImageButton">Insert image</button><select id="blogTemplate" class="blog-select" aria-label="Insert a writing template"><option value="">Insert template…</option><option value="design">技术方案 · Tech design</option><option value="analysis">分析报告 · Analysis</option><option value="notes">读书笔记 · Reading notes</option><option value="essay">随笔 · Essay</option></select><button type="button" class="btn ghost" id="blogNewButton" hidden>New post</button><span>Markdown supported · drop or paste images into the editor to upload</span><input type="file" id="blogImportInput" accept=".md,.markdown,.txt" hidden><input type="file" id="blogImageInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden></div>
         <div class="blog-editor"><textarea id="blogContent" required placeholder="Write in Markdown…"></textarea><div class="blog-preview markdown-body" id="blogPreview" data-no-translate aria-label="Markdown preview"></div></div>
         <div class="row"><a class="cite" href="/blogs/" target="_blank" rel="noopener">View public posts</a><a class="cite" id="blogViewLink" href="#" target="_blank" rel="noopener" hidden>View this post ↗</a><button class="mini" id="blogSubmit" type="submit" style="margin-left:auto;">Publish post</button></div>
-        <div class="jstatus" id="blogStatus" role="status"></div>
+        <div class="jstatus" id="blogStatus" role="status" data-no-translate></div>
         <div class="note">Each post is public and feeds both your Digital Twin knowledge base and memories. Editing a post re-indexes the knowledge base with the new text.</div>
       </form>
       <div class="klist" id="blogJobs" aria-label="Recent blog learning jobs"></div>
@@ -660,7 +660,9 @@ function blogClose() {
 $('blogsBtn').onclick = blogOpen;
 $('blogsClose').onclick = blogClose;
 $('blogsMask').onclick = e => { if (e.target === $('blogsMask')) blogClose(); };
-function setBlogStatus(text) { $('blogStatus').textContent = text; }
+// 博客面板的提示按当前语言直接输出，避免英文句子被全站词典的短词规则误替换。
+const blogT = (en, zh) => document.documentElement.lang === 'zh-CN' ? zh : en;
+function setBlogStatus(en, zh) { $('blogStatus').textContent = zh ? blogT(en, zh) : en; }
 async function refreshBlogJobs() {
   try {
     const res = await fetch('/api/blogs/manage');
@@ -693,7 +695,7 @@ async function refreshBlogJobs() {
 let blogEditingID = null;
 function blogSetMode(id) {
   blogEditingID = id;
-  $('blogSubmit').textContent = id ? 'Save changes' : 'Publish post';
+  $('blogSubmit').textContent = id ? blogT('Save changes', '保存修改') : blogT('Publish post', '发布文章');
   $('blogNewButton').hidden = !id;
   $('blogViewLink').hidden = !id;
   if (id) $('blogViewLink').href = '/blogs/?id=' + id;
@@ -706,42 +708,44 @@ function blogReset() {
 async function blogEdit(id) {
   try {
     const res = await fetch('/api/blogs/' + id, {cache: 'no-store'});
-    if (!res.ok) { setBlogStatus('Unable to load post ' + id + ' (HTTP ' + res.status + ')'); return; }
+    if (!res.ok) { setBlogStatus('Unable to load post ' + id + ' (HTTP ' + res.status + ')', '无法加载第 ' + id + ' 篇（HTTP ' + res.status + '）'); return; }
     const post = await res.json();
     blogSetMode(id);
     $('blogTitle').value = post.title || '';
     // 早期纯文本文章没有 Markdown 标记，按原文放进编辑器、之后以 Markdown 保存，显示不变。
     $('blogContent').value = post.content || '';
     blogRenderPreview();
-    setBlogStatus('Editing post #' + id + '. Save to publish the changes and re-index the knowledge base.');
+    setBlogStatus('Editing post #' + id + '. Save to publish the changes and re-index the knowledge base.', '正在编辑第 ' + id + ' 篇。保存后会更新文章，并用新正文重建知识库索引。');
     $('blogTitle').scrollIntoView({behavior: 'smooth', block: 'center'});
-  } catch (_) { setBlogStatus('Network error while loading the post.'); }
+  } catch (_) { setBlogStatus('Network error while loading the post.', '加载文章时网络出错。'); }
 }
 $('blogNewButton').onclick = blogReset;
+// 切换语言时刷新由 JS 写入的博客面板文案（静态标签由全站词典处理）。
+window.addEventListener('csq:languagechange', () => { blogSetMode(blogEditingID); blogRenderPreview(); });
 $('blogForm').onsubmit = async event => {
   event.preventDefault();
   if (blogPublishing) return;
   const title = $('blogTitle').value.trim(), content = $('blogContent').value.trim();
-  if (!title || !content) { setBlogStatus('Title and content are required'); return; }
+  if (!title || !content) { setBlogStatus('Title and content are required', '标题和正文不能为空'); return; }
   const editing = blogEditingID;
   blogPublishing = true;
-  const btn = $('blogSubmit'); btn.disabled = true; btn.textContent = editing ? 'Saving…' : 'Publishing…';
+  const btn = $('blogSubmit'); btn.disabled = true; btn.textContent = editing ? blogT('Saving…', '保存中…') : blogT('Publishing…', '发布中…');
   try {
     const res = await fetch(editing ? '/api/blogs/' + editing : '/api/blogs', {method: editing ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title, content, format:'markdown'})});
     if (res.status === 401) { location.href = '/login'; return; }
-    if (!res.ok) { const b = await res.text(); setBlogStatus((editing ? 'Save failed: ' : 'Publish failed: ') + (b || res.status)); return; }
+    if (!res.ok) { const b = await res.text(); setBlogStatus((editing ? 'Save failed: ' : 'Publish failed: ') + (b || res.status), (editing ? '保存失败：' : '发布失败：') + (b || res.status)); return; }
     if (editing) {
-      setBlogStatus('Post #' + editing + ' saved. The knowledge base is being re-indexed with the new text.');
+      setBlogStatus('Post #' + editing + ' saved. The knowledge base is being re-indexed with the new text.', '第 ' + editing + ' 篇已保存，正在用新正文重建知识库索引。');
     } else {
       blogSetMode(null);
       $('blogTitle').value = ''; $('blogContent').value = ''; blogRenderPreview();
-      setBlogStatus('Post published. Learning and knowledge indexing are underway.');
+      setBlogStatus('Post published. Learning and knowledge indexing are underway.', '文章已发布，正在学习并写入知识库。');
     }
     await refreshBlogJobs();
   } catch (_) {
-    setBlogStatus('Network error. Please try again.');
+    setBlogStatus('Network error. Please try again.', '网络错误，请重试。');
   } finally {
-    blogPublishing = false; btn.disabled = false; btn.textContent = blogEditingID ? 'Save changes' : 'Publish post';
+    blogPublishing = false; btn.disabled = false; btn.textContent = blogEditingID ? blogT('Save changes', '保存修改') : blogT('Publish post', '发布文章');
   }
 };
 // ---------- 写作模板 ----------
@@ -919,17 +923,17 @@ function blogInsert(text) {
 }
 async function blogUploadImage(file) {
   if (!file || !file.type.startsWith('image/')) return;
-  setBlogStatus('Uploading ' + file.name + '…');
+  setBlogStatus('Uploading ' + file.name + '…', '正在上传 ' + file.name + '…');
   const body = new FormData(); body.append('file', file);
   try {
     const res = await fetch('/api/blogs/upload', {method:'POST', body});
     if (res.status === 401) { location.href = '/login'; return; }
-    if (!res.ok) { setBlogStatus('Image upload failed: ' + (await res.text())); return; }
+    if (!res.ok) { setBlogStatus('Image upload failed: ' + (await res.text()), '图片上传失败：' + (await res.text())); return; }
     const data = await res.json();
     const alt = (file.name || 'image').replace(/[\[\]]/g, '');
     blogInsert('\n![' + alt + '](' + data.url + ')\n');
-    setBlogStatus('Image uploaded.');
-  } catch (_) { setBlogStatus('Network error. Please try again.'); }
+    setBlogStatus('Image uploaded.', '图片已上传。');
+  } catch (_) { setBlogStatus('Network error. Please try again.', '网络错误，请重试。'); }
 }
 blogEditor.addEventListener('paste', event => {
   const file = Array.from(event.clipboardData?.files || []).find(f => f.type.startsWith('image/'));
@@ -946,14 +950,14 @@ $('blogImportButton').onclick = () => $('blogImportInput').click();
 $('blogImportInput').onchange = async event => {
   const file = event.target.files[0]; event.target.value = ''; if (!file) return;
   const text = (await file.text()).replace(/^\uFEFF/, '').trim();
-  if (!text) { setBlogStatus('The file is empty.'); return; }
+  if (!text) { setBlogStatus('The file is empty.', '文件内容为空。'); return; }
   // 标题为空时，用正文的一级标题当标题并从正文里去掉。
   const heading = text.match(/^#\s+(.+?)\s*(?:\n|$)/);
   if (heading && !$('blogTitle').value.trim()) {
     $('blogTitle').value = heading[1].trim();
     blogEditor.value = text.slice(heading[0].length).trim();
   } else blogEditor.value = text;
-  blogRenderPreview(); setBlogStatus('Imported ' + file.name + '. Review the preview, then publish.');
+  blogRenderPreview(); setBlogStatus('Imported ' + file.name + '. Review the preview, then publish.', '已导入 ' + file.name + '，确认预览后再发布。');
 };
 const blogParams = new URLSearchParams(location.search);
 if (blogParams.get('panel') === 'blogs') {

@@ -38,6 +38,12 @@ function showBlogStatus(message, error = false) {
 }
 function renderBlogs() {
   const list = byID('blogList'), article = byID('article');
+  // 文章区整体不参与全站词典翻译（保护正文），这里的固定文案按语言直接输出。
+  const zh = document.documentElement.lang === 'zh-CN';
+  const back = document.querySelector('.back-link');
+  if (back) back.textContent = zh ? '← 全部文章' : '← All posts';
+  byID('tocSummary').textContent = zh ? '目录' : 'Contents';
+  byID('editLink').textContent = zh ? '✎ 编辑' : '✎ Edit';
   if (blogID && blogState.post) {
     list.hidden = true; article.hidden = false;
     byID('articleTitle').textContent = blogState.post.title;
